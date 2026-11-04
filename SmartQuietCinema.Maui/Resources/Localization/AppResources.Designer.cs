@@ -115,6 +115,69 @@ namespace SmartQuietCinema.Maui.Resources.Localization {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Capture failed: {0}. Cleanup failed: {1}.
+        /// </summary>
+        public static string CaptureStartAndCleanupError {
+            get {
+                return ResourceManager.GetString("CaptureStartAndCleanupError", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Capture started. Sample rate: {0:N0} Hz, channels: {1}.
+        /// </summary>
+        public static string CaptureStarted {
+            get {
+                return ResourceManager.GetString("CaptureStarted", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Failed to start capture: {0}.
+        /// </summary>
+        public static string CaptureStartError {
+            get {
+                return ResourceManager.GetString("CaptureStartError", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Starting capture....
+        /// </summary>
+        public static string CaptureStarting {
+            get {
+                return ResourceManager.GetString("CaptureStarting", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Failed to stop capture: {0}.
+        /// </summary>
+        public static string CaptureStopError {
+            get {
+                return ResourceManager.GetString("CaptureStopError", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Capture stopped.
+        /// </summary>
+        public static string CaptureStopped {
+            get {
+                return ResourceManager.GetString("CaptureStopped", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Stopping capture....
+        /// </summary>
+        public static string CaptureStopping {
+            get {
+                return ResourceManager.GetString("CaptureStopping", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Compression level.
         /// </summary>
         public static string CompressionLevel {

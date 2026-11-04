@@ -11,10 +11,10 @@ namespace SmartQuietCinema.Maui.Services
     public sealed partial class LocalizationService : INotifyPropertyChanged
     {
         /// <summary>
-        /// Standard property name used to notify data bindings
-        /// that indexed values have changed.
+        /// Property name used to notify MAUI bindings
+        /// that localized indexer values have changed.
         /// </summary>
-        private const string IndexerPropertyName = "Item[]";
+        private const string IndexerPropertyName = "Item";
 
         private CultureInfo _culture = CultureInfo.CurrentUICulture;
 

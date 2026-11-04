@@ -135,6 +135,27 @@
   <data name="CaptureNotStarted" xml:space="preserve">
     <value>Capture not started</value>
   </data>
+  <data name="CaptureStartAndCleanupError" xml:space="preserve">
+    <value>Capture failed: {0}. Cleanup failed: {1}</value>
+  </data>
+  <data name="CaptureStarted" xml:space="preserve">
+    <value>Capture started. Sample rate: {0:N0} Hz, channels: {1}</value>
+  </data>
+  <data name="CaptureStartError" xml:space="preserve">
+    <value>Failed to start capture: {0}</value>
+  </data>
+  <data name="CaptureStarting" xml:space="preserve">
+    <value>Starting capture...</value>
+  </data>
+  <data name="CaptureStopError" xml:space="preserve">
+    <value>Failed to stop capture: {0}</value>
+  </data>
+  <data name="CaptureStopped" xml:space="preserve">
+    <value>Capture stopped</value>
+  </data>
+  <data name="CaptureStopping" xml:space="preserve">
+    <value>Stopping capture...</value>
+  </data>
   <data name="CompressionLevel" xml:space="preserve">
     <value>Compression level</value>
   </data>

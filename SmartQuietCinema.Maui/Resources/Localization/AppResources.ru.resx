@@ -135,6 +135,27 @@
   <data name="CaptureNotStarted" xml:space="preserve">
     <value>Захват не запущен</value>
   </data>
+  <data name="CaptureStartAndCleanupError" xml:space="preserve">
+    <value>Ошибка запуска: {0}. Ошибка освобождения ресурсов: {1}</value>
+  </data>
+  <data name="CaptureStarted" xml:space="preserve">
+    <value>Захват запущен. Частота: {0:N0} Гц, каналов: {1}</value>
+  </data>
+  <data name="CaptureStartError" xml:space="preserve">
+    <value>Ошибка запуска захвата: {0}</value>
+  </data>
+  <data name="CaptureStarting" xml:space="preserve">
+    <value>Запуск захвата...</value>
+  </data>
+  <data name="CaptureStopError" xml:space="preserve">
+    <value>Ошибка остановки захвата: {0}</value>
+  </data>
+  <data name="CaptureStopped" xml:space="preserve">
+    <value>Захват остановлен</value>
+  </data>
+  <data name="CaptureStopping" xml:space="preserve">
+    <value>Остановка захвата...</value>
+  </data>
   <data name="CompressionLevel" xml:space="preserve">
     <value>Уровень компрессии</value>
   </data>

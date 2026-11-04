@@ -2,6 +2,8 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using Microsoft.Maui.Controls;
+using SmartQuietCinema.Maui.Resources.Localization;
+using SmartQuietCinema.Maui.Services;
 using SmartQuietCinema.Core.Interfaces;
 using SmartQuietCinema.Core.Models;
 
@@ -11,16 +13,81 @@ namespace SmartQuietCinema.Maui.ViewModels
     /// Provides audio output device selection, capture controls,
     /// and diagnostic information for the main application page.
     /// </summary>
-    public sealed partial class MainPageViewModel(
-        IAudioOutputDeviceProvider deviceProvider,
-        IAudioCaptureSessionFactory captureFactory)
+    public sealed partial class MainPageViewModel(IAudioOutputDeviceProvider deviceProvider, IAudioCaptureSessionFactory captureFactory, LocalizationService localization) 
         : INotifyPropertyChanged
     {
-        private readonly IAudioOutputDeviceProvider _deviceProvider =
-            deviceProvider ?? throw new ArgumentNullException(nameof(deviceProvider));
+        /// <summary>
+        /// Gets the localization service used to provide
+        /// translated strings to the user interface.
+        /// </summary>
+        public LocalizationService Localization { get; } = localization ?? throw new ArgumentNullException(nameof(localization));
+        private readonly IAudioOutputDeviceProvider _deviceProvider = deviceProvider ?? throw new ArgumentNullException(nameof(deviceProvider));
+        private readonly IAudioCaptureSessionFactory _captureFactory = captureFactory ?? throw new ArgumentNullException(nameof(captureFactory));
 
-        private readonly IAudioCaptureSessionFactory _captureFactory =
-            captureFactory ?? throw new ArgumentNullException(nameof(captureFactory));
+
+        private bool _isLanguageMenuOpen;
+
+        private Command? _toggleLanguageMenuCommand;
+        private Command<string>? _changeLanguageCommand;
+
+        /// <summary>
+        /// Gets or sets whether the language selection menu is visible.
+        /// </summary>
+        public bool IsLanguageMenuOpen
+        {
+            get => _isLanguageMenuOpen;
+            private set
+            {
+                if (_isLanguageMenuOpen == value)
+                    return;
+
+                _isLanguageMenuOpen = value;
+                OnPropertyChanged(nameof(IsLanguageMenuOpen));
+            }
+        }
+
+        /// <summary>
+        /// Gets the flag associated with the currently selected
+        /// or fallback application language.
+        /// </summary>
+
+        /// <summary>
+        /// Gets the two-letter code of the currently selected
+        /// application language.
+        /// </summary>
+        public string SelectedLanguageCode =>
+            Localization.Culture.TwoLetterISOLanguageName.ToUpperInvariant();
+
+
+        /// <summary>
+        /// Gets the command used to toggle the language menu.
+        /// </summary>
+        public Command ToggleLanguageMenuCommand =>
+            _toggleLanguageMenuCommand ??= new Command(
+                () => IsLanguageMenuOpen = !IsLanguageMenuOpen);
+
+        /// <summary>
+        /// Gets the command used to change the application language.
+        /// </summary>
+        public Command<string> ChangeLanguageCommand =>
+            _changeLanguageCommand ??= new Command<string>(
+                ChangeLanguage);
+
+        /// <summary>
+        /// Changes the application language and closes the menu.
+        /// </summary>
+        /// <param name="languageCode">
+        /// Language code supported by the current application resources.
+        /// </param>
+        private void ChangeLanguage(string? languageCode)
+        {
+            if (languageCode is not ("en" or "ru"))
+                return;
+
+            Localization.SetLanguage(languageCode);
+            IsLanguageMenuOpen = false;
+        }
+
 
         private IAudioCaptureSession? _captureSession;
         private AudioOutputDevice? _selectedOutputDevice;
@@ -29,7 +96,22 @@ namespace SmartQuietCinema.Maui.ViewModels
 
         private bool _isBusy;
         private long _capturedBytes;
-        private string _captureStatus = "Захват не запущен";
+
+        /// <summary>
+        /// Indicates whether the ViewModel is subscribed
+        /// to application language changes.
+        /// </summary>
+        private bool _isLocalizationSubscribed;
+
+        /// <summary>
+        /// Resource key identifying the current capture status.
+        /// </summary>
+        private string _captureStatusKey = nameof(AppResources.CaptureNotStarted);
+
+        /// <summary>
+        /// Arguments used to format the localized capture status.
+        /// </summary>
+        private object?[] _captureStatusArguments = [];
 
         /// <summary>
         /// Occurs when a ViewModel property changes.
@@ -59,6 +141,69 @@ namespace SmartQuietCinema.Maui.ViewModels
             }
         }
 
+
+        /// <summary>
+        /// Subscribes to application language changes
+        /// and refreshes localized diagnostic properties.
+        /// </summary>
+        public void SubscribeToLanguageChanges()
+        {
+            if (_isLocalizationSubscribed)
+                return;
+
+            Localization.PropertyChanged += OnLocalizationChanged;
+            _isLocalizationSubscribed = true;
+
+            RefreshLocalizedDiagnostics();
+        }
+
+        /// <summary>
+        /// Unsubscribes from application language changes
+        /// to prevent unnecessary event handling and memory leaks.
+        /// </summary>
+        public void UnsubscribeFromLanguageChanges()
+        {
+            if (!_isLocalizationSubscribed)
+                return;
+
+            Localization.PropertyChanged -= OnLocalizationChanged;
+            _isLocalizationSubscribed = false;
+        }
+
+        /// <summary>
+        /// Handles changes to the selected application language.
+        /// </summary>
+        /// <param name="sender">
+        /// The localization service that raised the event.
+        /// </param>
+        /// <param name="e">
+        /// Information about the changed property.
+        /// </param>
+
+        private void OnLocalizationChanged(
+            object? sender,
+            PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName != nameof(LocalizationService.Culture))
+                return;
+
+            OnPropertyChanged(nameof(CaptureStatus));
+            OnPropertyChanged(nameof(CapturedBytesText));
+            OnPropertyChanged(nameof(SelectedLanguageCode));
+        }
+
+
+        /// <summary>
+        /// Notifies the UI that localized capture diagnostics
+        /// must be evaluated again.
+        /// </summary>
+        private void RefreshLocalizedDiagnostics()
+        {
+            OnPropertyChanged(nameof(CaptureStatus));
+            OnPropertyChanged(nameof(CapturedBytesText));
+        }
+
+
         /// <summary>
         /// Gets the number of captured audio bytes.
         /// </summary>
@@ -77,27 +222,28 @@ namespace SmartQuietCinema.Maui.ViewModels
             }
         }
 
+
         /// <summary>
-        /// Gets the formatted capture statistics text.
+        /// Gets the captured byte count formatted
+        /// according to the selected UI culture.
         /// </summary>
         public string CapturedBytesText =>
-            $"Получено данных: {CapturedBytes:N0} байт";
+            string.Format(
+                Localization.Culture,
+                Localization[nameof(AppResources.CapturedBytes)],
+                CapturedBytes);
+
+
 
         /// <summary>
-        /// Gets the current audio capture status.
+        /// Gets the current capture status in the selected UI language.
         /// </summary>
-        public string CaptureStatus
-        {
-            get => _captureStatus;
-            private set
-            {
-                if (_captureStatus == value)
-                    return;
+        public string CaptureStatus =>
+            string.Format(
+                Localization.Culture,
+                Localization[_captureStatusKey],
+                _captureStatusArguments);
 
-                _captureStatus = value;
-                OnPropertyChanged(nameof(CaptureStatus));
-            }
-        }
 
         /// <summary>
         /// Gets the command used to start audio capture.
@@ -114,6 +260,28 @@ namespace SmartQuietCinema.Maui.ViewModels
             _stopCaptureCommand ??= new Command(
                 async () => await StopCaptureAsync(),
                 CanStopCapture);
+
+
+        /// <summary>
+        /// Updates the current capture status using a localization
+        /// resource key and optional formatting arguments.
+        /// </summary>
+        /// <param name="resourceKey">
+        /// Resource key defined in AppResources.
+        /// </param>
+        /// <param name="arguments">
+        /// Values inserted into the localized message.
+        /// </param>
+        private void SetCaptureStatus(
+            string resourceKey,
+            params object?[] arguments)
+        {
+            _captureStatusKey = resourceKey;
+            _captureStatusArguments = arguments;
+
+            OnPropertyChanged(nameof(CaptureStatus));
+        }
+
 
         /// <summary>
         /// Refreshes the list of available audio output devices.
@@ -149,7 +317,7 @@ namespace SmartQuietCinema.Maui.ViewModels
             _isBusy = true;
             UpdateCommandStates();
 
-            CaptureStatus = "Запуск захвата...";
+            SetCaptureStatus(nameof(AppResources.CaptureStarting));
             CapturedBytes = 0;
 
             IAudioCaptureSession? session = null;
@@ -161,13 +329,12 @@ namespace SmartQuietCinema.Maui.ViewModels
 
                 _captureSession = session;
 
-                CaptureStatus =
-                    $"Захват запущен. Частота: {session.SampleRate} Гц, " +
-                    $"каналов: {session.Channels}";
+                SetCaptureStatus(nameof(AppResources.CaptureStarted), session.SampleRate, session.Channels);
             }
             catch (Exception ex)
             {
-                CaptureStatus = $"Ошибка запуска: {ex.Message}";
+
+                SetCaptureStatus(nameof(AppResources.CaptureStartError), ex.Message);
 
                 if (session is not null)
                 {
@@ -177,8 +344,7 @@ namespace SmartQuietCinema.Maui.ViewModels
                     }
                     catch (Exception cleanupException)
                     {
-                        CaptureStatus +=
-                            $" Ошибка освобождения ресурсов: {cleanupException.Message}";
+                        SetCaptureStatus(nameof(AppResources.CaptureStartAndCleanupError), ex.Message, cleanupException.Message);
                     }
                 }
             }
@@ -207,18 +373,18 @@ namespace SmartQuietCinema.Maui.ViewModels
             var session = _captureSession!;
             _captureSession = null;
 
-            CaptureStatus = "Остановка захвата...";
+            SetCaptureStatus(nameof(AppResources.CaptureStopping));
 
             try
             {
                 await session.DisposeAsync();
 
                 CapturedBytes = session.CapturedBytes;
-                CaptureStatus = "Захват остановлен";
+                SetCaptureStatus(nameof(AppResources.CaptureStopped));
             }
             catch (Exception ex)
             {
-                CaptureStatus = $"Ошибка остановки: {ex.Message}";
+                SetCaptureStatus(nameof(AppResources.CaptureStopError), ex.Message);
             }
             finally
             {

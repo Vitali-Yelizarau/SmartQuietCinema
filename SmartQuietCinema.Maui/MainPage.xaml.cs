@@ -50,6 +50,7 @@ namespace SmartQuietCinema.Maui
         {
             base.OnAppearing();
 
+            _viewModel.SubscribeToLanguageChanges();
             _viewModel.LoadOutputDevices();
             _statisticsTimer.Start();
         }
@@ -60,10 +61,10 @@ namespace SmartQuietCinema.Maui
         /// </summary>
         protected override async void OnDisappearing()
         {
+            _viewModel.UnsubscribeFromLanguageChanges();
             _statisticsTimer.Stop();
 
             base.OnDisappearing();
-
             await _viewModel.StopCaptureAsync();
         }
 
