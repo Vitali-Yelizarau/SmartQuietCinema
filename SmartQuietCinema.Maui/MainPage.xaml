@@ -2,6 +2,7 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:viewModels="clr-namespace:SmartQuietCinema.Maui.ViewModels"
+             xmlns:uiModels="clr-namespace:SmartQuietCinema.Maui.Models"
              x:Class="SmartQuietCinema.Maui.MainPage"
              x:DataType="viewModels:MainPageViewModel"
              xmlns:models="clr-namespace:SmartQuietCinema.Core.Models;assembly=SmartQuietCinema.Core">
@@ -84,10 +85,9 @@
               Padding="20,8,20,12">
 
             <!-- Available languages -->
-            <!-- Scrollable language selection menu -->
             <Border Grid.Column="0"
                     IsVisible="{Binding IsLanguageMenuOpen}"
-                    MaximumWidthRequest="309"
+                    MaximumWidthRequest="311"
                     HorizontalOptions="End"
                     VerticalOptions="Center"
                     BackgroundColor="#303035"
@@ -96,29 +96,34 @@
                     StrokeShape="RoundRectangle 10"
                     Padding="5">
 
-                <ScrollView Orientation="Horizontal"
-                            HorizontalScrollBarVisibility="Always"
-                            VerticalScrollBarVisibility="Never">
-
-                    <HorizontalStackLayout Spacing="6">
-
-                        <Button Text="EN"
-                                WidthRequest="55"
+                <CollectionView ItemsSource="{Binding Languages}"
                                 HeightRequest="45"
-                                Command="{Binding ChangeLanguageCommand}"
-                                CommandParameter="en"
-                                SemanticProperties.Description="English" />
+                                SelectionMode="None"
+                                HorizontalScrollBarVisibility="Default"
+                                VerticalScrollBarVisibility="Never">
 
-                        <Button Text="RU"
-                                WidthRequest="55"
-                                HeightRequest="45"
-                                Command="{Binding ChangeLanguageCommand}"
-                                CommandParameter="ru"
-                                SemanticProperties.Description="Русский" />
+                    <CollectionView.ItemsLayout>
+                        <LinearItemsLayout Orientation="Horizontal"
+                                           ItemSpacing="6" />
+                    </CollectionView.ItemsLayout>
 
-                    </HorizontalStackLayout>
+                    <CollectionView.ItemTemplate>
+                        <DataTemplate x:DataType="uiModels:LanguageOption">
 
-                </ScrollView>
+                            <Button Text="{Binding DisplayCode}"
+                                    WidthRequest="55"
+                                    HeightRequest="45"
+                                    Command="{Binding x:DataType='viewModels:MainPageViewModel',
+                                              Source={RelativeSource
+                                              AncestorType={x:Type viewModels:MainPageViewModel}},
+                                              Path=ChangeLanguageCommand}"
+                                    CommandParameter="{Binding CultureCode}"
+                                    SemanticProperties.Description="{Binding NativeName}" />
+
+                        </DataTemplate>
+                    </CollectionView.ItemTemplate>
+
+                </CollectionView>
 
             </Border>
 

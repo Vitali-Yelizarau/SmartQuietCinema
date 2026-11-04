@@ -2,6 +2,7 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using Microsoft.Maui.Controls;
+using SmartQuietCinema.Maui.Models;
 using SmartQuietCinema.Maui.Resources.Localization;
 using SmartQuietCinema.Maui.Services;
 using SmartQuietCinema.Core.Interfaces;
@@ -16,6 +17,17 @@ namespace SmartQuietCinema.Maui.ViewModels
     public sealed partial class MainPageViewModel(IAudioOutputDeviceProvider deviceProvider, IAudioCaptureSessionFactory captureFactory, LocalizationService localization) 
         : INotifyPropertyChanged
     {
+
+        /// <summary>
+        /// Gets the languages available for selection.
+        /// </summary>
+        public IReadOnlyList<LanguageOption> Languages => LanguageCatalog.AvailableLanguages;
+
+        /// <summary>
+        /// Gets the display code of the currently selected language.
+        /// </summary>
+        public string SelectedLanguageCode => LanguageCatalog.GetDisplayCode(Localization.Culture.TwoLetterISOLanguageName);
+
         /// <summary>
         /// Gets the localization service used to provide
         /// translated strings to the user interface.
@@ -46,18 +58,6 @@ namespace SmartQuietCinema.Maui.ViewModels
             }
         }
 
-        /// <summary>
-        /// Gets the flag associated with the currently selected
-        /// or fallback application language.
-        /// </summary>
-
-        /// <summary>
-        /// Gets the two-letter code of the currently selected
-        /// application language.
-        /// </summary>
-        public string SelectedLanguageCode =>
-            Localization.Culture.TwoLetterISOLanguageName.ToUpperInvariant();
-
 
         /// <summary>
         /// Gets the command used to toggle the language menu.
@@ -74,15 +74,15 @@ namespace SmartQuietCinema.Maui.ViewModels
                 ChangeLanguage);
 
         /// <summary>
-        /// Changes the application language and closes the menu.
+        /// Changes the application language if it is supported.
         /// </summary>
         /// <param name="languageCode">
-        /// Language code supported by the current application resources.
+        /// The language code to apply.
         /// </param>
         private void ChangeLanguage(string? languageCode)
         {
-            if (languageCode is not ("en" or "ru"))
-                return;
+            if (string.IsNullOrWhiteSpace(languageCode) ||
+                !LanguageCatalog.IsSupported(languageCode)) return;
 
             Localization.SetLanguage(languageCode);
             IsLanguageMenuOpen = false;
