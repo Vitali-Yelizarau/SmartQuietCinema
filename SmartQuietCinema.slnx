@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="SmartQuietCinema.Core/SmartQuietCinema.Core.csproj" />
+  <Project Path="SmartQuietCinema.Maui/SmartQuietCinema.Maui.csproj">
+    <Deploy Solution="Debug|*" />
+  </Project>
+  <Project Path="SmartQuietCinema.Platform.Windows/SmartQuietCinema.Platform.Windows.csproj" />
+  <Project Path="SmartQuietCinema.Tests/SmartQuietCinema.Tests.csproj" />
+</Solution>

@@ -1,0 +1,77 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:viewModels="clr-namespace:SmartQuietCinema.Maui.ViewModels"
+             x:Class="SmartQuietCinema.Maui.MainPage"
+             x:DataType="viewModels:MainPageViewModel"
+             xmlns:models="clr-namespace:SmartQuietCinema.Core.Models;assembly=SmartQuietCinema.Core">
+
+
+    <VerticalStackLayout
+        Padding="30"
+        Spacing="20">
+
+        <Label
+            Text="Smart Quiet Cinema"
+            FontSize="28"
+            FontAttributes="Bold" />
+
+        <!-- Audio output device selection -->
+        <Label
+            Text="Устройство вывода звука"
+            FontAttributes="Bold" />
+
+        <Picker
+            Title="Выберите аудиоустройство"
+            ItemsSource="{Binding OutputDevices}"
+            ItemDisplayBinding="{Binding Name, x:DataType=models:AudioOutputDevice}"
+            SelectedItem="{Binding SelectedOutputDevice}"
+            HorizontalOptions="Fill" />
+
+
+        <!-- Audio capture diagnostic controls -->
+        <Grid ColumnDefinitions="*,*"
+              ColumnSpacing="10">
+
+            <Button Grid.Column="0"
+                    Text="Запустить захват"
+                    Command="{Binding StartCaptureCommand}" />
+
+            <Button Grid.Column="1"
+                    Text="Остановить захват"
+                    Command="{Binding StopCaptureCommand}" />
+
+        </Grid>
+
+        <!-- Capture status and statistics -->
+        <Label Text="{Binding CaptureStatus}"
+               FontAttributes="Bold" />
+
+        <Label Text="{Binding CapturedBytesText}"
+               FontSize="14" />
+
+        <Label Text="Уровень компрессии" />
+
+        <Slider
+            Minimum="0"
+            Maximum="100"
+            Value="50" />
+
+        <Grid ColumnDefinitions="*,Auto"
+              ColumnSpacing="15">
+
+            <Label Grid.Column="0"
+                   Text="Обработка звука"
+                   VerticalOptions="Center" />  
+
+            <Switch Grid.Column="1"
+                    IsToggled="False"
+                    VerticalOptions="Center" />
+
+        </Grid>
+
+        <Button Text="Применить настройки" />
+    </VerticalStackLayout>
+    
+
+</ContentPage>
