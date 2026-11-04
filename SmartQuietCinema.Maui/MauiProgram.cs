@@ -6,6 +6,7 @@ using SmartQuietCinema.Platform.Windows.Capture;
 #endif
 
 using Microsoft.Extensions.Logging;
+using SmartQuietCinema.Maui.Services;
 
 namespace SmartQuietCinema.Maui
 {
@@ -14,6 +15,9 @@ namespace SmartQuietCinema.Maui
         public static MauiApp CreateMauiApp()
         {
             var builder = MauiApp.CreateBuilder();
+
+            // Register the application localization service.
+            builder.Services.AddSingleton<LocalizationService>();
 
 
 #if WINDOWS
@@ -30,7 +34,7 @@ namespace SmartQuietCinema.Maui
 
             // Register the Windows audio capture session factory.
             builder.Services.AddSingleton<IAudioCaptureSessionFactory, WindowsAudioCaptureSessionFactory>();
-
+        
 #endif
 
             builder
