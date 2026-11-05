@@ -19,6 +19,7 @@ public static class LanguageCatalog
             new("be", "BY-Ў", "Беларуская (кірыліца)"),
             new("be-Latn", "BY-Ł", "Biełaruskaja łacinka"),
             new("uk", "UA", "Українська"),
+            new("es", "ES", "Español"),
             new("ru", "RU", "Русский")
         ]);
 
