@@ -135,6 +135,9 @@
   <data name="CaptureNotStarted" xml:space="preserve">
     <value>Захоплення не розпочато</value>
   </data>
+  <data name="CaptureSource" xml:space="preserve">
+    <value>Джерело захоплення: {0}</value>
+  </data>
   <data name="CaptureStartAndCleanupError" xml:space="preserve">
     <value>Помилка запуску захоплення: {0}. Помилка звільнення ресурсів: {1}</value>
   </data>

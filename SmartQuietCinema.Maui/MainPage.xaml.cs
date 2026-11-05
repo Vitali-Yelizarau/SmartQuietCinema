@@ -83,5 +83,26 @@ namespace SmartQuietCinema.Maui
         {
             _viewModel.RefreshCaptureStatistics();
         }
+
+
+        /// <summary>
+        /// Stops the current audio capture session when the
+        /// selected audio output device changes.
+        /// </summary>
+        /// <param name="sender">
+        /// The picker that raised the event.
+        /// </param>
+        /// <param name="e">
+        /// The event arguments.
+        /// </param>
+        private async void OnAudioOutputDeviceChanged(
+            object sender,
+            EventArgs e)
+        {
+            if (BindingContext is not MainPageViewModel viewModel)
+                return;
+
+            await viewModel.StopCaptureOnDeviceChangeAsync();
+        }
     }
 }

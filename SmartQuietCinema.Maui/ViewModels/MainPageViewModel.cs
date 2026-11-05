@@ -17,6 +17,28 @@ namespace SmartQuietCinema.Maui.ViewModels
     public sealed partial class MainPageViewModel(IAudioOutputDeviceProvider deviceProvider, IAudioCaptureSessionFactory captureFactory, LocalizationService localization) 
         : INotifyPropertyChanged
     {
+        /// <summary>
+        /// Currently active audio capture device name, or null if no capture is active.
+        /// </summary>
+        private string? _activeCaptureDeviceName;
+
+        /// <summary>
+        /// Gets whether an active audio capture source is available.
+        /// </summary>
+        public bool HasActiveCaptureSource =>
+            _activeCaptureDeviceName is not null;
+
+        /// <summary>
+        /// Gets the localized description of the active
+        /// audio capture source.
+        /// </summary>
+        public string ActiveCaptureSourceText =>
+            _activeCaptureDeviceName is null
+                ? string.Empty
+                : string.Format(
+                    Localization.Culture,
+                    Localization[nameof(AppResources.CaptureSource)],
+                    _activeCaptureDeviceName);
 
         /// <summary>
         /// Gets the languages available for selection.
@@ -188,6 +210,7 @@ namespace SmartQuietCinema.Maui.ViewModels
                 return;
 
             OnPropertyChanged(nameof(CaptureStatus));
+            OnPropertyChanged(nameof(ActiveCaptureSourceText));
             OnPropertyChanged(nameof(CapturedBytesText));
             OnPropertyChanged(nameof(SelectedLanguageCode));
         }
@@ -301,6 +324,7 @@ namespace SmartQuietCinema.Maui.ViewModels
             SelectedOutputDevice = null;
         }
 
+
         /// <summary>
         /// Starts a new audio capture session for the selected device.
         /// </summary>
@@ -309,8 +333,7 @@ namespace SmartQuietCinema.Maui.ViewModels
         /// </returns>
         public async Task StartCaptureAsync()
         {
-            if (!CanStartCapture())
-                return;
+            if (!CanStartCapture()) return;
 
             var selectedDevice = SelectedOutputDevice!;
 
@@ -329,11 +352,15 @@ namespace SmartQuietCinema.Maui.ViewModels
 
                 _captureSession = session;
 
-                SetCaptureStatus(nameof(AppResources.CaptureStarted), session.SampleRate, session.Channels);
+                SetActiveCaptureSource(selectedDevice.Name);
+
+                SetCaptureStatus(
+                    nameof(AppResources.CaptureStarted),
+                    session.SampleRate,
+                    session.Channels);
             }
             catch (Exception ex)
             {
-
                 SetCaptureStatus(nameof(AppResources.CaptureStartError), ex.Message);
 
                 if (session is not null)
@@ -354,6 +381,8 @@ namespace SmartQuietCinema.Maui.ViewModels
                 UpdateCommandStates();
             }
         }
+
+
 
         /// <summary>
         /// Stops the active capture session and releases its resources.
@@ -384,13 +413,33 @@ namespace SmartQuietCinema.Maui.ViewModels
             }
             catch (Exception ex)
             {
-                SetCaptureStatus(nameof(AppResources.CaptureStopError), ex.Message);
+                SetCaptureStatus(
+                    nameof(AppResources.CaptureStopError),
+                    ex.Message);
             }
             finally
             {
+                SetActiveCaptureSource(null);
+
                 _isBusy = false;
                 UpdateCommandStates();
             }
+        }
+
+
+        /// <summary>
+        /// Stops the active audio capture session when the
+        /// selected output device changes.
+        /// </summary>
+        /// <returns>
+        /// A task representing the asynchronous stop operation.
+        /// </returns>
+        public Task StopCaptureOnDeviceChangeAsync()
+        {
+            if (_captureSession is null)
+                return Task.CompletedTask;
+
+            return StopCaptureAsync();
         }
 
         /// <summary>
@@ -439,6 +488,24 @@ namespace SmartQuietCinema.Maui.ViewModels
             PropertyChanged?.Invoke(
                 this,
                 new PropertyChangedEventArgs(propertyName));
+        }
+
+        /// <summary>
+        /// Updates the active capture source and notifies
+        /// the user interface about the changes.
+        /// </summary>
+        /// <param name="deviceName">
+        /// The name of the active audio device,
+        /// or null when capture is stopped.
+        /// </param>
+        private void SetActiveCaptureSource(string? deviceName)
+        {
+            if (string.Equals(_activeCaptureDeviceName, deviceName, StringComparison.Ordinal)) return;
+
+            _activeCaptureDeviceName = deviceName;
+
+            OnPropertyChanged(nameof(HasActiveCaptureSource));
+            OnPropertyChanged(nameof(ActiveCaptureSourceText));
         }
     }
 }

@@ -115,6 +115,15 @@ namespace SmartQuietCinema.Maui.Resources.Localization {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Capture source: {0}.
+        /// </summary>
+        public static string CaptureSource {
+            get {
+                return ResourceManager.GetString("CaptureSource", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Capture failed: {0}. Cleanup failed: {1}.
         /// </summary>
         public static string CaptureStartAndCleanupError {

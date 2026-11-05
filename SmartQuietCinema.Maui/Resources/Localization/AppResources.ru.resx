@@ -135,6 +135,9 @@
   <data name="CaptureNotStarted" xml:space="preserve">
     <value>Захват не запущен</value>
   </data>
+  <data name="CaptureSource" xml:space="preserve">
+    <value>Источник захвата: {0}</value>
+  </data>
   <data name="CaptureStartAndCleanupError" xml:space="preserve">
     <value>Ошибка запуска: {0}. Ошибка освобождения ресурсов: {1}</value>
   </data>

@@ -135,6 +135,9 @@
   <data name="CaptureNotStarted" xml:space="preserve">
     <value>Capture not started</value>
   </data>
+  <data name="CaptureSource" xml:space="preserve">
+    <value>Capture source: {0}</value>
+  </data>
   <data name="CaptureStartAndCleanupError" xml:space="preserve">
     <value>Capture failed: {0}. Cleanup failed: {1}</value>
   </data>
