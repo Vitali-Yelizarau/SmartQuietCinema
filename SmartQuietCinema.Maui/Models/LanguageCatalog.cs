@@ -15,8 +15,9 @@ public static class LanguageCatalog
         Array.AsReadOnly<LanguageOption>(
         [
             new("en", "EN", "English"),
-            new("ru", "RU", "Русский"),
-            new("uk", "UA", "Українська")
+            new("be", "BY-Ў", "Беларуская (кірыліца)"),
+            new("uk", "UA", "Українська"),
+            new("ru", "RU", "Русский")
         ]);
 
     private static readonly FrozenSet<string> SupportedCultureCodes = AvailableLanguages.Select(language => language.CultureCode)
