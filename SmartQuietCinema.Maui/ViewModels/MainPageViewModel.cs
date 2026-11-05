@@ -26,7 +26,7 @@ namespace SmartQuietCinema.Maui.ViewModels
         /// <summary>
         /// Gets the display code of the currently selected language.
         /// </summary>
-        public string SelectedLanguageCode => LanguageCatalog.GetDisplayCode(Localization.Culture.TwoLetterISOLanguageName);
+        public string SelectedLanguageCode => LanguageCatalog.GetDisplayCode(Localization.Culture.Name);
 
         /// <summary>
         /// Gets the localization service used to provide

@@ -111,11 +111,10 @@
                         <DataTemplate x:DataType="uiModels:LanguageOption">
 
                             <Button Text="{Binding DisplayCode}"
-                                    WidthRequest="55"
+                                    WidthRequest="58"
                                     HeightRequest="45"
                                     Command="{Binding x:DataType='viewModels:MainPageViewModel',
-                                              Source={RelativeSource
-                                              AncestorType={x:Type viewModels:MainPageViewModel}},
+                                              Source={RelativeSource AncestorType={x:Type viewModels:MainPageViewModel}},
                                               Path=ChangeLanguageCommand}"
                                     CommandParameter="{Binding CultureCode}"
                                     SemanticProperties.Description="{Binding NativeName}" />
@@ -130,7 +129,7 @@
             <!-- Current language button -->
             <Button Grid.Column="1"
                     Text="{Binding SelectedLanguageCode}"
-                    WidthRequest="55"
+                    WidthRequest="58"
                     HeightRequest="45"
                     HorizontalOptions="End"
                     VerticalOptions="Center"

@@ -1,11 +1,21 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
+	<PropertyGroup>
+		<RespectAlreadyAssignedItemCulture>true</RespectAlreadyAssignedItemCulture>
+	</PropertyGroup>
 
 	<!-- Windows-specific audio backend -->
 	<ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
 		<ProjectReference Include="..\SmartQuietCinema.Platform.Windows\SmartQuietCinema.Platform.Windows.csproj" />
 	</ItemGroup>
 
+	<ItemGroup>
+		<EmbeddedResource Update="Resources\Localization\AppResources.be-Latn.resx">
+			<Culture>be-Latn</Culture>
+			<WithCulture>true</WithCulture>
+			<LogicalName>SmartQuietCinema.Maui.Resources.Localization.AppResources.resources</LogicalName>
+		</EmbeddedResource>
+	</ItemGroup>
 
 	<PropertyGroup>
 		<!-- Default language for application resources -->

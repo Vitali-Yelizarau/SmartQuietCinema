@@ -16,6 +16,7 @@ public static class LanguageCatalog
         [
             new("en", "EN", "English"),
             new("be", "BY-Ў", "Беларуская (кірыліца)"),
+            new("be-Latn", "BY-Ł", "Biełaruskaja łacinka"),
             new("uk", "UA", "Українська"),
             new("ru", "RU", "Русский")
         ]);
@@ -48,7 +49,8 @@ public static class LanguageCatalog
     /// </returns>
     public static string GetDisplayCode(string cultureCode)
     {
-        return AvailableLanguages.FirstOrDefault(language => string.Equals(language.CultureCode, cultureCode, StringComparison.OrdinalIgnoreCase))
+        var dCode = AvailableLanguages.FirstOrDefault(language => string.Equals(language.CultureCode, cultureCode, StringComparison.OrdinalIgnoreCase))
                                 ?.DisplayCode ?? "EN";
+        return dCode;
     }
 }
