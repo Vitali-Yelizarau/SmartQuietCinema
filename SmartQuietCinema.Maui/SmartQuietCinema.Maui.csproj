@@ -13,7 +13,7 @@
 		<EmbeddedResource Update="Resources\Localization\AppResources.be-Latn.resx">
 			<Culture>be-Latn</Culture>
 			<WithCulture>true</WithCulture>
-			<LogicalName>SmartQuietCinema.Maui.Resources.Localization.AppResources.resources</LogicalName>
+			<LogicalName>SmartQuietCinema.Maui.Resources.Localization.AppResources.be-Latn.resources</LogicalName>
 		</EmbeddedResource>
 	</ItemGroup>
 

@@ -3,16 +3,21 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:viewModels="clr-namespace:SmartQuietCinema.Maui.ViewModels"
              xmlns:uiModels="clr-namespace:SmartQuietCinema.Maui.Models"
+             xmlns:models="clr-namespace:SmartQuietCinema.Core.Models;assembly=SmartQuietCinema.Core"
              x:Class="SmartQuietCinema.Maui.MainPage"
-             x:DataType="viewModels:MainPageViewModel"
-             xmlns:models="clr-namespace:SmartQuietCinema.Core.Models;assembly=SmartQuietCinema.Core">
+             x:DataType="viewModels:MainPageViewModel">
 
-    <!-- Main content and fixed-height language toolbar -->
-    <Grid RowDefinitions="*,78">
-        <ScrollView Grid.Row="0">
-            <VerticalStackLayout Padding="30"
-                                 Spacing="20">
+    <!-- Main page layout -->
+    <Grid>
 
+        <!-- Main scrollable content -->
+        <ScrollView>
+
+            <VerticalStackLayout
+                Padding="30,30,30,105"
+                Spacing="20">
+
+                <!-- Application title -->
                 <Label
                     Text="{Binding Localization[AppTitle]}"
                     FontSize="28"
@@ -30,96 +35,135 @@
                     SelectedItem="{Binding SelectedOutputDevice}"
                     HorizontalOptions="Fill" />
 
-
                 <!-- Audio capture diagnostic controls -->
-                <Grid ColumnDefinitions="*,*"
-                      ColumnSpacing="10">
+                <Grid
+                    ColumnDefinitions="*,*"
+                    ColumnSpacing="10">
 
-                    <Button Grid.Column="0"
-                            Text="{Binding Localization[StartCapture]}"
-                            Command="{Binding StartCaptureCommand}" />
+                    <Button
+                        Grid.Column="0"
+                        Text="{Binding Localization[StartCapture]}"
+                        Command="{Binding StartCaptureCommand}" />
 
-                    <Button Grid.Column="1"
-                            Text="{Binding Localization[StopCapture]}"
-                            Command="{Binding StopCaptureCommand}" />
+                    <Button
+                        Grid.Column="1"
+                        Text="{Binding Localization[StopCapture]}"
+                        Command="{Binding StopCaptureCommand}" />
 
                 </Grid>
 
                 <!-- Capture status and statistics -->
-                <Label Text="{Binding CaptureStatus}"
-                       FontAttributes="Bold" />
+                <Label
+                    Text="{Binding CaptureStatus}"
+                    FontAttributes="Bold" />
 
-                <Label Text="{Binding CapturedBytesText}"
-                       FontSize="14" />
+                <Label
+                    Text="{Binding CapturedBytesText}"
+                    FontSize="14" />
 
-                <Label Text="{Binding Localization[CompressionLevel]}" />
+                <!-- Compression controls -->
+                <Label
+                    Text="{Binding Localization[CompressionLevel]}" />
 
                 <Slider
                     Minimum="0"
                     Maximum="100"
                     Value="50" />
 
-                <Grid ColumnDefinitions="*,Auto"
-                      ColumnSpacing="15">
+                <!-- Audio processing controls -->
+                <Grid
+                    ColumnDefinitions="*,Auto"
+                    ColumnSpacing="15">
 
-                    <Label Grid.Column="0"
-                           Text="{Binding Localization[AudioProcessing]}"
-                           VerticalOptions="Center" />  
+                    <Label
+                        Grid.Column="0"
+                        Text="{Binding Localization[AudioProcessing]}"
+                        VerticalOptions="Center" />
 
-                    <Switch Grid.Column="1"
-                            IsToggled="False"
-                            VerticalOptions="Center" />
+                    <Switch
+                        Grid.Column="1"
+                        IsToggled="False"
+                        VerticalOptions="Center" />
 
                 </Grid>
 
-                <Button Text="{Binding Localization[ApplySettings]}" />
+                <!-- Apply settings -->
+                <Button
+                    Text="{Binding Localization[ApplySettings]}" />
+
             </VerticalStackLayout>
+
         </ScrollView>
 
+        <!-- Floating language selection toolbar -->
+        <Grid
+            ZIndex="1"
+            HeightRequest="77"
+            ColumnDefinitions="Auto,Auto"
+            ColumnSpacing="8"
+            HorizontalOptions="End"
+            VerticalOptions="End"
+            Margin="0,0,20,8">
 
+            <!-- Scrollable language selection menu -->
+            <Border
+                Grid.Column="0"
+                IsVisible="{Binding IsLanguageMenuOpen}"
+                MaximumWidthRequest="326"
+                HorizontalOptions="End"
+                VerticalOptions="Start"
+                BackgroundColor="#303035"
+                Stroke="#555555"
+                StrokeThickness="1"
+                StrokeShape="RoundRectangle 10"
+                Padding="5">
 
-        <!-- Fixed-height language selection toolbar -->
-        <Grid Grid.Row="1"
-              ColumnDefinitions="*,Auto"
-              ColumnSpacing="8"
-              Padding="20,8,20,12">
-
-            <!-- Available languages -->
-            <Border Grid.Column="0"
-                    IsVisible="{Binding IsLanguageMenuOpen}"
-                    MaximumWidthRequest="311"
-                    HorizontalOptions="End"
-                    VerticalOptions="Center"
-                    BackgroundColor="#303035"
-                    Stroke="#555555"
-                    StrokeThickness="1"
-                    StrokeShape="RoundRectangle 10"
-                    Padding="5">
-
-                <CollectionView ItemsSource="{Binding Languages}"
-                                HeightRequest="45"
-                                SelectionMode="None"
-                                HorizontalScrollBarVisibility="Default"
-                                VerticalScrollBarVisibility="Never">
+                <CollectionView
+                    ItemsSource="{Binding Languages}"
+                    HeightRequest="65"
+                    ItemSizingStrategy="MeasureFirstItem"
+                    SelectionMode="None"
+                    HorizontalScrollBarVisibility="Default"
+                    VerticalScrollBarVisibility="Never">
 
                     <CollectionView.ItemsLayout>
-                        <LinearItemsLayout Orientation="Horizontal"
-                                           ItemSpacing="6" />
+                        <LinearItemsLayout
+                            Orientation="Horizontal"
+                            ItemSpacing="6" />
                     </CollectionView.ItemsLayout>
 
                     <CollectionView.ItemTemplate>
-                        <DataTemplate x:DataType="uiModels:LanguageOption">
 
-                            <Button Text="{Binding DisplayCode}"
+                        <DataTemplate
+                            x:DataType="uiModels:LanguageOption">
+
+                            <!-- Language button and scrollbar clearance -->
+                            <Grid
+                                WidthRequest="58"
+                                HeightRequest="65"
+                                RowDefinitions="45,20">
+
+                                <Button
+                                    Grid.Row="0"
+                                    Text="{Binding DisplayCode}"
                                     WidthRequest="58"
                                     HeightRequest="45"
-                                    Command="{Binding x:DataType='viewModels:MainPageViewModel',
-                                              Source={RelativeSource AncestorType={x:Type viewModels:MainPageViewModel}},
-                                              Path=ChangeLanguageCommand}"
+                                    FontSize="14"
+                                    Padding="4,0"
+                                    HorizontalOptions="Center"
+                                    VerticalOptions="Start"
+                                    Command="{Binding
+                                        x:DataType='viewModels:MainPageViewModel',
+                                        Source={RelativeSource
+                                            AncestorType={x:Type viewModels:MainPageViewModel}},
+                                        Path=ChangeLanguageCommand}"
                                     CommandParameter="{Binding CultureCode}"
                                     SemanticProperties.Description="{Binding NativeName}" />
 
+                            </Grid>
+
                         </DataTemplate>
+
                     </CollectionView.ItemTemplate>
 
                 </CollectionView>
@@ -127,16 +171,20 @@
             </Border>
 
             <!-- Current language button -->
-            <Button Grid.Column="1"
-                    Text="{Binding SelectedLanguageCode}"
-                    WidthRequest="58"
-                    HeightRequest="45"
-                    HorizontalOptions="End"
-                    VerticalOptions="Center"
-                    Command="{Binding ToggleLanguageMenuCommand}"
-                    SemanticProperties.Description="Select language" />
+            <Button
+                Grid.Column="1"
+                Text="{Binding SelectedLanguageCode}"
+                WidthRequest="58"
+                HeightRequest="45"
+                FontSize="14"
+                Padding="4,0"
+                HorizontalOptions="End"
+                VerticalOptions="Start"
+                Margin="0,6,0,0"
+                Command="{Binding ToggleLanguageMenuCommand}"
+                SemanticProperties.Description="Select language" />
 
-        </Grid>    
+        </Grid>
 
     </Grid>
 
