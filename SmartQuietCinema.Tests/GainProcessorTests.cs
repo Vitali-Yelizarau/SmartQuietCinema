@@ -1,8 +1,7 @@
-﻿
-using SmartQuietCinema.Core.DSP;
+﻿using SmartQuietCinema.Core.DSP;
 using Xunit;
 
-namespace SmartQuietCinema.Tests.DSP
+namespace SmartQuietCinema.Tests
 {
     /// <summary>
     /// Contains unit tests for the GainProcessor class.
