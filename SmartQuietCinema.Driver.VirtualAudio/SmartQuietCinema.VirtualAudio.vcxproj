@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{716A44B7-E15B-40D4-BD77-512F0C7111BC}</ProjectGuid>
+    <RootNamespace>SmartQuietCinemaVirtualAudio</RootNamespace>
+    <KMDF_VERSION_MAJOR>1</KMDF_VERSION_MAJOR>
+    <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
+    <Platform Condition="'$(Platform)' == ''">x64</Platform>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Driver</ConfigurationType>
+    <DriverType>KMDF</DriverType>
+    <DriverTargetPlatform>Universal</DriverTargetPlatform>
+    <TargetVersion>Windows10</TargetVersion>
+    <!-- Windows 11 22H2 (NTDDI_WIN10_NI) matches the INF's build 22621 floor. -->
+    <_NT_TARGET_VERSION>0x0A00000C</_NT_TARGET_VERSION>
+    <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <TargetName>SmartQuietCinemaVirtualAudio</TargetName>
+    <SysVadDirectory>$(MSBuildProjectDirectory)\obj\SysVAD\audio\sysvad</SysVadDirectory>
+    <OutDir>$(MSBuildProjectDirectory)\bin\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(MSBuildProjectDirectory)\obj\$(Platform)\$(Configuration)\</IntDir>
+    <SignMode>Off</SignMode>
+    <Inf2CatUseLocalTime>true</Inf2CatUseLocalTime>
+    <Inf2CatWindowsVersionList>10_NI_X64,10_GE_X64,10_25H2_X64</Inf2CatWindowsVersionList>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <AdditionalIncludeDirectories>$(MSBuildProjectDirectory);$(SysVadDirectory);$(SysVadDirectory)\EndpointsCommon;$(DDK_INC_PATH);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>_WIN32;UNICODE;_UNICODE;PC_IMPLEMENTATION;_USE_WAVERT_;_NEW_DELETE_OPERATORS_;DEBUG_LEVEL=DEBUGLVL_TERSE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>$(DDK_LIB_PATH)\portcls.lib;$(DDK_LIB_PATH)\stdunk.lib;$(DDK_LIB_PATH)\libcntpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="$(SysVadDirectory)\adapter.cpp" />
+    <ClCompile Include="$(SysVadDirectory)\basetopo.cpp" />
+    <ClCompile Include="$(SysVadDirectory)\common.cpp" />
+    <ClCompile Include="$(SysVadDirectory)\hw.cpp" />
+    <ClCompile Include="$(SysVadDirectory)\kshelper.cpp" />
+    <ClCompile Include="$(SysVadDirectory)\SaveData.cpp" />
+    <ClCompile Include="$(SysVadDirectory)\ToneGenerator.cpp" />
+    <ClCompile Include="$(SysVadDirectory)\EndpointsCommon\AudioModuleHelper.cpp" />
+    <ClCompile Include="$(SysVadDirectory)\EndpointsCommon\MiniportAudioEngineNode.cpp" />
+    <ClCompile Include="$(SysVadDirectory)\EndpointsCommon\MiniportStreamAudioEngineNode.cpp" />
+    <ClCompile Include="$(SysVadDirectory)\EndpointsCommon\mintopo.cpp" />
+    <ClCompile Include="$(SysVadDirectory)\EndpointsCommon\minwavert.cpp" />
+    <ClCompile Include="$(SysVadDirectory)\EndpointsCommon\minwavertstream.cpp" />
+    <ClCompile Include="$(SysVadDirectory)\EndpointsCommon\NewDelete.cpp" />
+    <ClCompile Include="$(SysVadDirectory)\EndpointsCommon\speakertopo.cpp" />
+    <ClInclude Include="minipairs.h" />
+    <Inf Include="SmartQuietCinemaVirtualAudio.inx" />
+    <FilesToPackage Include="$(TargetPath)" />
+  </ItemGroup>
+  <Target Name="CheckPinnedSysVad" BeforeTargets="PrepareForBuild">
+    <Error Condition="!Exists('$(SysVadDirectory)\Prepared-v2.txt')" Text="Run Prepare-SysVad.ps1 before building. Move any older obj\SysVAD staging directory aside first." />
+  </Target>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

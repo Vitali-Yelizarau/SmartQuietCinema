@@ -6,4 +6,11 @@
   <Project Path="SmartQuietCinema.Platform.Windows/SmartQuietCinema.Platform.Windows.csproj" />
   <Project Path="SmartQuietCinema.Tests/SmartQuietCinema.Tests.csproj" />
   <Project Path="SmartQuietCinema.Tools.AudioTestBench/SmartQuietCinema.Tools.AudioTestBench.csproj" />
+  <Folder Name="/Experimental/">
+    <Project Path="SmartQuietCinema.Driver.VirtualAudio/SmartQuietCinema.VirtualAudio.vcxproj" Id="716a44b7-e15b-40d4-bd77-512f0c7111bc">
+      <Platform Project="x64" />
+      <Build Project="false" />
+    </Project>
+    <Project Path="SmartQuietCinema.Tools.VirtualAudioProbe/SmartQuietCinema.Tools.VirtualAudioProbe.csproj" />
+  </Folder>
 </Solution>
