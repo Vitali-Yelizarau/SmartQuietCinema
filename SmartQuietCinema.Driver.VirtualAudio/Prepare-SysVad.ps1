@@ -9,6 +9,21 @@ A local Git checkout of the official Windows-driver-samples repository at the do
 param([Parameter(Mandatory)][string]$SourceCheckout)
 
 $ErrorActionPreference = 'Stop'
+
+function Update-PinnedSource {
+    <# .SYNOPSIS
+    Applies one exact adaptation to the pinned source and fails if its patch point has drifted.
+    #>
+    param([string]$Source, [string]$Before, [string]$After)
+
+    $lineBreak = if ($Source.Contains("`r`n")) { "`r`n" } else { "`n" }
+    $pattern = $Before -replace '\r?\n', $lineBreak
+    if ([regex]::Matches($Source, [regex]::Escape($pattern)).Count -ne 1) {
+        throw "Expected one pinned SysVAD patch point: $($Before.Trim())"
+    }
+    return $Source.Replace($pattern, ($After -replace '\r?\n', $lineBreak))
+}
+
 $revision = 'd49bb7d72f3651952b2b6e4ad28d14fe2247eb69'
 $head = & git -C $SourceCheckout rev-parse HEAD
 if ($LASTEXITCODE -ne 0 -or $head -cne $revision) {
@@ -17,7 +32,7 @@ if ($LASTEXITCODE -ne 0 -or $head -cne $revision) {
 
 $output = Join-Path $PSScriptRoot 'obj\SysVAD'
 $staged = Join-Path $output 'audio\sysvad'
-$stamp = Join-Path $staged 'Prepared-v3.txt'
+$stamp = Join-Path $staged 'Prepared-v4.txt'
 if ([IO.File]::Exists($stamp) -and [IO.File]::ReadAllText($stamp) -ceq $revision) {
     Write-Output "Prepared SysVAD source already exists at $staged"
     return
@@ -59,6 +74,52 @@ try {
     if ([regex]::Matches($adapter, $etwQuery).Count -ne 1) { throw 'The upstream ETW helper query did not match.' }
     $adapter = [regex]::Replace($adapter, $etwQuery, '${1}const NTSTATUS etwStatus${2}etwStatus')
     [IO.File]::WriteAllText($adapterPath, $adapter, $encoding)
+
+    $commonPath = Join-Path $staged 'common.cpp'
+    $common = [IO.File]::ReadAllText($commonPath)
+
+    # The adapter instance slot normally belongs to the destructor. Release it here when allocation creates no object.
+    $adapterAllocationLog = '        DPF(D_ERROR, ("NewAdapterCommon failed, 0x%x", ntStatus));'
+    $common = Update-PinnedSource $common $adapterAllocationLog ("        InterlockedDecrement(&CAdapterCommon::m_AdapterInstances);`n" + $adapterAllocationLog)
+
+    # Check the newly allocated destination before the counted registry-name copy.
+    $valueNameAllocation = @'
+        pwstrKeyValueName = (PWSTR)ExAllocatePool2(POOL_FLAG_NON_PAGED, kvFullInfo->NameLength + sizeof(WCHAR)*2, MINADAPTER_POOLTAG);
+        IF_TRUE_ACTION_JUMP(kvFullInfo == NULL, ntStatus = STATUS_INSUFFICIENT_RESOURCES, loop_exit);
+'@
+    $common = Update-PinnedSource $common $valueNameAllocation ($valueNameAllocation.Replace('kvFullInfo == NULL', 'pwstrKeyValueName == NULL'))
+    $keyNameAllocation = @'
+        pwstrKeyName = (PWSTR)ExAllocatePool2(POOL_FLAG_NON_PAGED, kBasicInfo->NameLength + sizeof(WCHAR), MINADAPTER_POOLTAG);
+        IF_TRUE_ACTION_JUMP(kBasicInfo == NULL, ntStatus = STATUS_INSUFFICIENT_RESOURCES, loop_exit);
+'@
+    $common = Update-PinnedSource $common $keyNameAllocation ($keyNameAllocation.Replace('kBasicInfo == NULL', 'pwstrKeyName == NULL'))
+
+    # Enumeration can fail before the next iteration acquires any resources.
+    foreach ($name in 'pwstrKeyValueName', 'pwstrKeyName') {
+        $freeName = "            ExFreePoolWithTag($name, MINADAPTER_POOLTAG);"
+        $common = Update-PinnedSource $common $freeName ($freeName + "`n            $name = NULL;")
+    }
+
+    # Transfer handle ownership only on success and close each acquired handle once in loop_exit.
+    $openKey = @'
+        ntStatus = ZwOpenKey(&hCurrentSourceKey, KEY_READ, &hCurrentSourceKeyAttributes);
+        IF_FAILED_ACTION_JUMP(ntStatus, ZwClose(hCurrentSourceKey), loop_exit);
+'@
+    $common = Update-PinnedSource $common $openKey ($openKey.Replace('ZwClose(hCurrentSourceKey)', 'hCurrentSourceKey = NULL'))
+    $createKey = @'
+        ntStatus = ZwCreateKey(&hNewDestinationKey, KEY_WRITE, &hNewDestinationKeyAttributes, 0, NULL, REG_OPTION_NON_VOLATILE, &ulDisposition);
+        IF_FAILED_ACTION_JUMP(ntStatus, ZwClose(hCurrentSourceKey), loop_exit);
+'@
+    $common = Update-PinnedSource $common $createKey ($createKey.Replace('ZwClose(hCurrentSourceKey)', 'hNewDestinationKey = NULL'))
+    foreach ($handle in 'hCurrentSourceKey', 'hNewDestinationKey') {
+        $closeKey = "            ZwClose($handle);"
+        $common = Update-PinnedSource $common $closeKey ($closeKey + "`n            $handle = NULL;")
+    }
+
+    # A template link is usable only after successful interface registration.
+    $templateLink = '        &TemplateSymbolicLinkName);'
+    $common = Update-PinnedSource $common $templateLink ($templateLink + "`n    IF_FAILED_JUMP(ntStatus, Exit);")
+    [IO.File]::WriteAllText($commonPath, $common, $encoding)
 
     $enginePath = Join-Path $staged 'EndpointsCommon\MiniportAudioEngineNode.cpp'
     $engine = [IO.File]::ReadAllText($enginePath)
