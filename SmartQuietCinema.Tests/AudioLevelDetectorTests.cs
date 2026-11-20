@@ -40,11 +40,9 @@ namespace SmartQuietCinema.Tests
         [Fact]
         public void Analyze_SplitBuffers_PreservesDetectorState()
         {
-            var singleBufferDetector =
-                new AudioLevelDetector(10, 100);
+            var singleBufferDetector = new AudioLevelDetector(10, 100);
 
-            var splitBufferDetector =
-                new AudioLevelDetector(10, 100);
+            var splitBufferDetector = new AudioLevelDetector(10, 100);
 
             float[] samples =
             {
@@ -54,19 +52,13 @@ namespace SmartQuietCinema.Tests
                 0.3f, -0.3f
             };
 
-            singleBufferDetector.Analyze(
-                samples, 2, 1000);
+            singleBufferDetector.Analyze(samples, 2, 1000);
 
-            splitBufferDetector.Analyze(
-                samples.AsSpan(0, 4), 2, 1000);
+            splitBufferDetector.Analyze(samples.AsSpan(0, 4), 2, 1000);
 
-            splitBufferDetector.Analyze(
-                samples.AsSpan(4), 2, 1000);
+            splitBufferDetector.Analyze(samples.AsSpan(4), 2, 1000);
 
-            Assert.Equal(
-                singleBufferDetector.Level,
-                splitBufferDetector.Level,
-                10);
+            Assert.Equal(singleBufferDetector.Level, splitBufferDetector.Level, 10);
         }
 
 
@@ -88,15 +80,10 @@ namespace SmartQuietCinema.Tests
 
             for (int i = 0; i < samples.Length; i += 2)
             {
-                frameDetector.AnalyzeFrame(
-                    samples.AsSpan(i, 2),
-                    1000);
+                frameDetector.AnalyzeFrame(samples.AsSpan(i, 2), 1000);
             }
 
-            Assert.Equal(
-                bufferDetector.Level,
-                frameDetector.Level,
-                10);
+            Assert.Equal(bufferDetector.Level, frameDetector.Level, 10);
         }
 
         [Fact]
@@ -146,15 +133,9 @@ namespace SmartQuietCinema.Tests
 
             // Inactive channels must not artificially
             // decrease the detected signal level.
-            Assert.InRange(
-                stereoDetector.Level,
-                0.099,
-                0.101);
+            Assert.InRange(stereoDetector.Level, 0.099, 0.101);
 
-            Assert.InRange(
-                surroundDetector.Level,
-                0.099,
-                0.101);
+            Assert.InRange(surroundDetector.Level, 0.099, 0.101);
         }
 
     }

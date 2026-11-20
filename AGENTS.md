@@ -96,6 +96,7 @@ This policy is mandatory for all future SmartQuietCinema development and testing
 - Prefer concise, clean, readable C#. Prioritize readability, consistency, and compactness over excessive vertical formatting.
 - Keep method calls, assignments, expressions, and argument lists on one line when they fit comfortably and remain readable. Do not split short calls or argument lists merely for style.
 - Use multiline formatting only when a line becomes excessively long or hard to understand, or when splitting genuinely improves readability. Do not impose arbitrary line length limits on clear code.
+- Prefer concise single-line expressions when they remain readable. Avoid unnecessary line breaks in assignments, arithmetic expressions, method calls and simple conditions. Preserve multiline formatting where it improves clarity. Formatting changes must not alter program behavior.
 - Preserve the project owner's deliberate formatting choices. Do not reformat unrelated code or introduce unnecessary line breaks.
 - Apply this policy to all future C# work in SmartQuietCinema unless the project owner explicitly changes it.
 

@@ -24,8 +24,7 @@ namespace SmartQuietCinema.Tests
 
             var processor = new GainProcessor(0.0);
 
-            processor.Process(
-                samples, StereoChannels, SampleRateHz);
+            processor.Process(samples, StereoChannels, SampleRateHz);
 
             Assert.Equal(expected, samples);
         }
@@ -44,16 +43,11 @@ namespace SmartQuietCinema.Tests
 
             var processor = new GainProcessor(GainDb);
 
-            processor.Process(
-                samples, StereoChannels, SampleRateHz);
+            processor.Process(samples, StereoChannels, SampleRateHz);
 
-            Assert.InRange(
-                MathF.Abs(samples[0] - ExpectedAmplitude),
-                0f, Tolerance);
+            Assert.InRange(MathF.Abs(samples[0] - ExpectedAmplitude), 0f, Tolerance);
 
-            Assert.InRange(
-                MathF.Abs(samples[1] + ExpectedAmplitude),
-                0f, Tolerance);
+            Assert.InRange(MathF.Abs(samples[1] + ExpectedAmplitude), 0f, Tolerance);
         }
 
         /// <summary>
@@ -66,8 +60,7 @@ namespace SmartQuietCinema.Tests
         public void Constructor_InvalidGain_ThrowsException(
             double gainDb)
         {
-            Assert.Throws<ArgumentOutOfRangeException>(
-                () => new GainProcessor(gainDb));
+            Assert.Throws<ArgumentOutOfRangeException>(() => new GainProcessor(gainDb));
         }
 
         /// <summary>
@@ -80,9 +73,7 @@ namespace SmartQuietCinema.Tests
 
             var processor = new GainProcessor(0.0);
 
-            Assert.Throws<ArgumentOutOfRangeException>(
-                () => processor.Process(
-                    samples, 0, SampleRateHz));
+            Assert.Throws<ArgumentOutOfRangeException>(() => processor.Process(samples, 0, SampleRateHz));
         }
 
         /// <summary>
@@ -95,9 +86,7 @@ namespace SmartQuietCinema.Tests
 
             var processor = new GainProcessor(0.0);
 
-            Assert.Throws<ArgumentException>(
-                () => processor.Process(
-                    samples, StereoChannels, SampleRateHz));
+            Assert.Throws<ArgumentException>(() => processor.Process(samples, StereoChannels, SampleRateHz));
         }
     }
 }

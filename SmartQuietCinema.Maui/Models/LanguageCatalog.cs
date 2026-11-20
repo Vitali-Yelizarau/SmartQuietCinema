@@ -59,8 +59,7 @@ public static class LanguageCatalog
 
         if (dCode is not null) return dCode;
 
-        var neutralCode = CultureInfo.GetCultureInfo(cultureCode)
-                                     .TwoLetterISOLanguageName;
+        var neutralCode = CultureInfo.GetCultureInfo(cultureCode).TwoLetterISOLanguageName;
 
         return AvailableLanguages.FirstOrDefault(language =>
             string.Equals(

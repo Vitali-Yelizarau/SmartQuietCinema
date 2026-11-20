@@ -10,10 +10,7 @@ namespace SmartQuietCinema.Tests
         {
             var curve = new AdaptiveGainCurve();
 
-            Assert.Equal(
-                0.0,
-                curve.CalculateTargetGainDb(
-                    double.NegativeInfinity));
+            Assert.Equal(0.0, curve.CalculateTargetGainDb(double.NegativeInfinity));
         }
 
         /// <summary>

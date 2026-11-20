@@ -45,8 +45,7 @@ namespace SmartQuietCinema.Maui.Services
             {
                 ArgumentException.ThrowIfNullOrWhiteSpace(key);
 
-                return AppResources.ResourceManager.GetString(
-                    key, _culture) ?? key;
+                return AppResources.ResourceManager.GetString(key, _culture) ?? key;
             }
         }
 
@@ -65,21 +64,16 @@ namespace SmartQuietCinema.Maui.Services
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(languageCode);
 
-            CultureInfo newCulture =
-                CultureInfo.GetCultureInfo(languageCode);
+            CultureInfo newCulture = CultureInfo.GetCultureInfo(languageCode);
 
             if (_culture.Equals(newCulture))
                 return;
 
             _culture = newCulture;
 
-            PropertyChanged?.Invoke(
-                this,
-                new PropertyChangedEventArgs(nameof(Culture)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Culture)));
 
-            PropertyChanged?.Invoke(
-                this,
-                new PropertyChangedEventArgs(IndexerPropertyName));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(IndexerPropertyName));
         }
     }
 }

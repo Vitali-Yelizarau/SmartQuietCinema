@@ -9,8 +9,7 @@ namespace SmartQuietCinema.Core.DSP
     {
         // Initial experimental activity threshold: -80 dBFS.
         private const double ActivityThreshold = 0.0001;
-        private const double ActivityThresholdSquared =
-            ActivityThreshold * ActivityThreshold;
+        private const double ActivityThresholdSquared = ActivityThreshold * ActivityThreshold;
 
         private const double AttackMilliseconds = 5.0;
         private const double ReleaseMilliseconds = 250.0;
@@ -28,14 +27,11 @@ namespace SmartQuietCinema.Core.DSP
             ReadOnlySpan<float> frame,
             int sampleRate)
         {
-            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
-                sampleRate);
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
 
             if (frame.IsEmpty)
             {
-                throw new ArgumentException(
-                    "The audio frame must not be empty.",
-                    nameof(frame));
+                throw new ArgumentException("The audio frame must not be empty.", nameof(frame));
             }
 
             // Reinitialize activity tracking when channel count changes.
@@ -47,11 +43,9 @@ namespace SmartQuietCinema.Core.DSP
             // Cache time coefficients for the current sample rate.
             if (_cachedSampleRate != sampleRate)
             {
-                _attackCoefficient = Math.Exp(
-                    -1000.0 / (AttackMilliseconds * sampleRate));
+                _attackCoefficient = Math.Exp(-1000.0 / (AttackMilliseconds * sampleRate));
 
-                _releaseCoefficient = Math.Exp(
-                    -1000.0 / (ReleaseMilliseconds * sampleRate));
+                _releaseCoefficient = Math.Exp(-1000.0 / (ReleaseMilliseconds * sampleRate));
 
                 _cachedSampleRate = sampleRate;
             }
@@ -72,21 +66,16 @@ namespace SmartQuietCinema.Core.DSP
                 double power = sample * sample;
                 double previousEnergy = _channelEnergy[channel];
 
-                double coefficient = power > previousEnergy
-                    ? _attackCoefficient
-                    : _releaseCoefficient;
+                double coefficient = power > previousEnergy ? _attackCoefficient : _releaseCoefficient;
 
-                double smoothedEnergy =
-                    power + coefficient * (previousEnergy - power);
+                double smoothedEnergy = power + coefficient * (previousEnergy - power);
 
                 _channelEnergy[channel] = smoothedEnergy;
 
                 // A channel becomes active immediately when its
                 // signal exceeds the threshold. Smoothed energy
                 // prevents it from becoming inactive too quickly.
-                bool isActive =
-                    power >= ActivityThresholdSquared ||
-                    smoothedEnergy >= ActivityThresholdSquared;
+                bool isActive = power >= ActivityThresholdSquared || smoothedEnergy >= ActivityThresholdSquared;
 
                 if (!isActive)
                 {
@@ -97,9 +86,7 @@ namespace SmartQuietCinema.Core.DSP
                 activeChannels++;
             }
 
-            return activeChannels > 0
-                ? Math.Sqrt(sumSquares / activeChannels)
-                : 0.0;
+            return activeChannels > 0 ? Math.Sqrt(sumSquares / activeChannels) : 0.0;
         }
 
         /// <summary>

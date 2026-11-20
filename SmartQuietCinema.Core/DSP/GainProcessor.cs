@@ -51,8 +51,7 @@ namespace SmartQuietCinema.Core.DSP
         {
             if (!double.IsFinite(gainDb))
             {
-                throw new ArgumentOutOfRangeException(
-                    nameof(gainDb));
+                throw new ArgumentOutOfRangeException(nameof(gainDb));
             }
 
             float linearGain = (float)Math.Pow(DecibelBase, gainDb / AmplitudeDecibelFactor);
@@ -60,8 +59,7 @@ namespace SmartQuietCinema.Core.DSP
 
             if (!float.IsFinite(linearGain))
             {
-                throw new ArgumentOutOfRangeException(
-                    nameof(gainDb));
+                throw new ArgumentOutOfRangeException(nameof(gainDb));
             }
 
             GainDb = gainDb;
@@ -102,9 +100,7 @@ namespace SmartQuietCinema.Core.DSP
 
             if (samples.Length % channels != 0)
             {
-                throw new ArgumentException(
-                    "The buffer length must be divisible by the channel count.",
-                    nameof(samples));
+                throw new ArgumentException("The buffer length must be divisible by the channel count.", nameof(samples));
             }
 
             for (int i = 0; i < samples.Length; i++)

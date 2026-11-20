@@ -28,15 +28,13 @@ namespace SmartQuietCinema.Maui
         {
             InitializeComponent();
 
-            _viewModel = viewModel
-                ?? throw new ArgumentNullException(nameof(viewModel));
+            _viewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
 
             BindingContext = _viewModel;
 
             _statisticsTimer = Dispatcher.CreateTimer();
 
-            _statisticsTimer.Interval =
-                TimeSpan.FromMilliseconds(StatisticsRefreshIntervalMs);
+            _statisticsTimer.Interval = TimeSpan.FromMilliseconds(StatisticsRefreshIntervalMs);
 
             _statisticsTimer.IsRepeating = true;
 

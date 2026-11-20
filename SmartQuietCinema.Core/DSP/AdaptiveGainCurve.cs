@@ -51,8 +51,7 @@ namespace SmartQuietCinema.Core.DSP
 
             if (!double.IsFinite(signalLevelDb))
             {
-                throw new ArgumentOutOfRangeException(
-                    nameof(signalLevelDb));
+                throw new ArgumentOutOfRangeException(nameof(signalLevelDb));
             }
 
             // Do not amplify near-silence.
@@ -63,9 +62,7 @@ namespace SmartQuietCinema.Core.DSP
             // above the configured noise floor.
             if (signalLevelDb < MaximumBoostLevelDb)
             {
-                double factor =
-                    (signalLevelDb - NoiseFloorDb) /
-                    (MaximumBoostLevelDb - NoiseFloorDb);
+                double factor = (signalLevelDb - NoiseFloorDb) / (MaximumBoostLevelDb - NoiseFloorDb);
 
                 return MaximumBoostDb * factor;
             }
@@ -74,9 +71,7 @@ namespace SmartQuietCinema.Core.DSP
             // as the signal approaches the neutral range.
             if (signalLevelDb < QuietNeutralLevelDb)
             {
-                double factor =
-                    (QuietNeutralLevelDb - signalLevelDb) /
-                    (QuietNeutralLevelDb - MaximumBoostLevelDb);
+                double factor = (QuietNeutralLevelDb - signalLevelDb) / (QuietNeutralLevelDb - MaximumBoostLevelDb);
 
                 return MaximumBoostDb * factor;
             }

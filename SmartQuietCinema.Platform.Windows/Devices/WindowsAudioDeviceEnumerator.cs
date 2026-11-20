@@ -30,9 +30,7 @@ namespace SmartQuietCinema.Platform.Windows.Devices
         {
             using var enumerator = new MMDeviceEnumerator();
 
-            using var endpoints = enumerator.EnumerateAudioEndPoints(
-                                                  DataFlow.Render,
-                                                  DeviceState.Active);
+            using var endpoints = enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
 
             var devices = new List<AudioOutputDevice>(endpoints.Count);
 
@@ -40,9 +38,7 @@ namespace SmartQuietCinema.Platform.Windows.Devices
             {
                 using var device = endpoints[i];
 
-                devices.Add(new AudioOutputDevice(
-                    device.ID,
-                    device.FriendlyName));
+                devices.Add(new AudioOutputDevice(device.ID, device.FriendlyName));
             }
 
             return devices;

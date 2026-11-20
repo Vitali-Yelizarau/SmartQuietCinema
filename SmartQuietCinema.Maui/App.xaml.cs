@@ -11,10 +11,7 @@ namespace SmartQuietCinema.Maui
 
         protected override Window CreateWindow(IActivationState? activationState)
         {
-            var window = new Window(new AppShell())
-            {
-                Title = "Smart Quiet Cinema"
-            };
+            var window = new Window(new AppShell()) { Title = "Smart Quiet Cinema" };
 
 
 #if WINDOWS

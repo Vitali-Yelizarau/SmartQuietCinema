@@ -39,18 +39,14 @@ namespace SmartQuietCinema.Core.DSP
             double attackMilliseconds,
             double releaseMilliseconds)
         {
-            if (!double.IsFinite(attackMilliseconds) ||
-                attackMilliseconds <= 0)
+            if (!double.IsFinite(attackMilliseconds) || attackMilliseconds <= 0)
             {
-                throw new ArgumentOutOfRangeException(
-                    nameof(attackMilliseconds));
+                throw new ArgumentOutOfRangeException(nameof(attackMilliseconds));
             }
 
-            if (!double.IsFinite(releaseMilliseconds) ||
-                releaseMilliseconds <= 0)
+            if (!double.IsFinite(releaseMilliseconds) || releaseMilliseconds <= 0)
             {
-                throw new ArgumentOutOfRangeException(
-                    nameof(releaseMilliseconds));
+                throw new ArgumentOutOfRangeException(nameof(releaseMilliseconds));
             }
 
             _attackMilliseconds = attackMilliseconds;
@@ -80,9 +76,7 @@ namespace SmartQuietCinema.Core.DSP
 
             if (samples.Length % channels != 0)
             {
-                throw new ArgumentException(
-                    "The buffer length must be divisible by the channel count.",
-                    nameof(samples));
+                throw new ArgumentException("The buffer length must be divisible by the channel count.", nameof(samples));
             }
 
             UpdateCoefficients(sampleRate);
@@ -115,9 +109,7 @@ namespace SmartQuietCinema.Core.DSP
 
             if (frame.IsEmpty)
             {
-                throw new ArgumentException(
-                    "The audio frame must not be empty.",
-                    nameof(frame));
+                throw new ArgumentException("The audio frame must not be empty.", nameof(frame));
             }
 
             UpdateCoefficients(sampleRate);
@@ -135,11 +127,9 @@ namespace SmartQuietCinema.Core.DSP
             if (_cachedSampleRate == sampleRate)
                 return;
 
-            _attackCoefficient = Math.Exp(
-                -1000.0 / (_attackMilliseconds * sampleRate));
+            _attackCoefficient = Math.Exp(-1000.0 / (_attackMilliseconds * sampleRate));
 
-            _releaseCoefficient = Math.Exp(
-                -1000.0 / (_releaseMilliseconds * sampleRate));
+            _releaseCoefficient = Math.Exp(-1000.0 / (_releaseMilliseconds * sampleRate));
 
             _cachedSampleRate = sampleRate;
         }
@@ -159,9 +149,7 @@ namespace SmartQuietCinema.Core.DSP
 
             double frameRms = _activeChannels.Calculate(frame, _cachedSampleRate);
 
-            double coefficient = frameRms > Level
-                ? _attackCoefficient
-                : _releaseCoefficient;
+            double coefficient = frameRms > Level ? _attackCoefficient : _releaseCoefficient;
 
             Level += (frameRms - Level) * (1.0 - coefficient);
         }

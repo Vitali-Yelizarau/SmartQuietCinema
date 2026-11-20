@@ -79,8 +79,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
 
             if (_recorder is not null)
             {
-                throw new InvalidOperationException(
-                    "The capture session has already been started.");
+                throw new InvalidOperationException("The capture session has already been started.");
             }
 
             using var enumerator = new MMDeviceEnumerator();
@@ -120,9 +119,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
                 var diagnostics = new AudioDiagnosticsAccumulator();
 
                 // Record a short A/B comparison using the captured audio format.
-                AbComparisonCapture? abCapture = isFloat32
-                    ? new AbComparisonCapture(format, MAX_CAPTURE_DURATION_SECONDS)
-                    : null;
+                AbComparisonCapture? abCapture = isFloat32 ? new AbComparisonCapture(format, MAX_CAPTURE_DURATION_SECONDS) : null;
 
 
                 // Accumulate input audio levels separately for each channel.
@@ -149,52 +146,37 @@ namespace SmartQuietCinema.Platform.Windows.Capture
                 // Process every captured audio buffer.
                 recorder.DataAvailable += (buffer, _, _, _) =>
                 {
-                    Interlocked.Add(
-                        ref _capturedBytes,
-                        buffer.Length);
+                    Interlocked.Add(ref _capturedBytes, buffer.Length);
 
-                    if (!isFloat32 ||
-                        buffer.IsEmpty ||
-                        buffer.Length % format.BlockAlign != 0)
+                    if (!isFloat32 || buffer.IsEmpty || buffer.Length % format.BlockAlign != 0)
                     {
                         return;
                     }
 
                     // Interpret the captured bytes as read-only float samples.
-                    ReadOnlySpan<float> inputSamples =
-                        MemoryMarshal.Cast<byte, float>(buffer);
+                    ReadOnlySpan<float> inputSamples = MemoryMarshal.Cast<byte, float>(buffer);
 
                     // Rent a reusable buffer for processing.
-                    float[] rentedBuffer =
-                        ArrayPool<float>.Shared.Rent(inputSamples.Length);
+                    float[] rentedBuffer = ArrayPool<float>.Shared.Rent(inputSamples.Length);
 
                     try
                     {
-                        Span<float> processedSamples =
-                            rentedBuffer.AsSpan(0, inputSamples.Length);
+                        Span<float> processedSamples = rentedBuffer.AsSpan(0, inputSamples.Length);
 
                         // Preserve the original captured samples.
                         inputSamples.CopyTo(processedSamples);
 
                         // Apply DSP to every buffer.
-                        processor.Process(
-                            processedSamples,
-                            format.Channels,
-                            format.SampleRate);
+                        processor.Process(processedSamples, format.Channels, format.SampleRate);
 
                         // Share the captured frames with the lookahead controller so quiet gain can yield before loud events.
                         transientController.Process(processedSamples, inputSamples, format.Channels, format.SampleRate);
 
                         // Include every processed buffer in the diagnostics.
-                        diagnostics.Add(
-                            inputSamples,
-                            processedSamples,
-                            processor.CurrentGainDb);
+                        diagnostics.Add(inputSamples, processedSamples, processor.CurrentGainDb);
 
                         // Preserve matching original and processed audio for A/B listening.
-                        abCapture?.Add(
-                            inputSamples,
-                            processedSamples);
+                        abCapture?.Add(inputSamples, processedSamples);
 
                         // Accumulate original audio levels for every channel.
                         for (int i = 0; i < inputSamples.Length; i++)
@@ -210,19 +192,16 @@ namespace SmartQuietCinema.Platform.Windows.Capture
 
                             float amplitude = Math.Abs(sample);
 
-                            channelPeaks[channel] =
-                                Math.Max(channelPeaks[channel], amplitude);
+                            channelPeaks[channel] = Math.Max(channelPeaks[channel], amplitude);
 
-                            channelSumSquares[channel] +=
-                                (double)sample * sample;
+                            channelSumSquares[channel] += (double)sample * sample;
 
                             channelSampleCounts[channel]++;
                         }
 
 
                         // Limit diagnostic logging to approximately once per second.
-                        if (Stopwatch.GetElapsedTime(lastLevelLogTimestamp)
-                            < TimeSpan.FromSeconds(1))
+                        if (Stopwatch.GetElapsedTime(lastLevelLogTimestamp) < TimeSpan.FromSeconds(1))
                         {
                             return;
                         }
@@ -231,8 +210,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
 
                         // Get measurements accumulated across all buffers
                         // since the previous diagnostic snapshot.
-                        AudioDiagnosticsSnapshot snapshot =
-                            diagnostics.TakeSnapshot();
+                        AudioDiagnosticsSnapshot snapshot = diagnostics.TakeSnapshot();
 
                         if (snapshot.SampleCount > 0)
                         {
@@ -284,8 +262,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
                 {
                     if (args.Exception is not null)
                     {
-                        Debug.WriteLine(
-                            $"WASAPI capture error: {args.Exception}");
+                        Debug.WriteLine($"WASAPI capture error: {args.Exception}");
                     }
                 };
 
@@ -351,15 +328,11 @@ namespace SmartQuietCinema.Platform.Windows.Capture
                 int durationSeconds)
             {
                 ArgumentNullException.ThrowIfNull(format);
-                ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
-                    durationSeconds);
+                ArgumentOutOfRangeException.ThrowIfNegativeOrZero(durationSeconds);
 
                 _format = format;
 
-                int sampleCount = checked(
-                    format.SampleRate *
-                    format.Channels *
-                    durationSeconds);
+                int sampleCount = checked(format.SampleRate * format.Channels * durationSeconds);
 
                 _original = new float[sampleCount];
                 _processed = new float[sampleCount];
@@ -372,11 +345,9 @@ namespace SmartQuietCinema.Platform.Windows.Capture
                 ReadOnlySpan<float> original,
                 ReadOnlySpan<float> processed)
             {
-                if (original.Length != processed.Length ||
-                    original.Length % _format.Channels != 0)
+                if (original.Length != processed.Length || original.Length % _format.Channels != 0)
                 {
-                    throw new ArgumentException(
-                        "Audio buffers must contain matching complete frames.");
+                    throw new ArgumentException("Audio buffers must contain matching complete frames.");
                 }
 
                 bool shouldSave = false;
@@ -388,15 +359,11 @@ namespace SmartQuietCinema.Platform.Windows.Capture
                         return;
                     }
 
-                    int count = Math.Min(
-                        original.Length,
-                        _original.Length - _writtenSamples);
+                    int count = Math.Min(original.Length, _original.Length - _writtenSamples);
 
-                    original[..count].CopyTo(
-                        _original.AsSpan(_writtenSamples, count));
+                    original[..count].CopyTo(_original.AsSpan(_writtenSamples, count));
 
-                    processed[..count].CopyTo(
-                        _processed.AsSpan(_writtenSamples, count));
+                    processed[..count].CopyTo(_processed.AsSpan(_writtenSamples, count));
 
                     _writtenSamples += count;
 
@@ -438,8 +405,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
                     {
                         float sample = _original[i + channel];
 
-                        if (!float.IsFinite(sample) ||
-                            Math.Abs(sample) > SilentChannelThreshold)
+                        if (!float.IsFinite(sample) || Math.Abs(sample) > SilentChannelThreshold)
                         {
                             return false;
                         }
@@ -465,11 +431,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
 
                     string folder = WindowsSampleStorage.CreateCaptureDirectory(WindowsSampleStorage.GetDefaultRoot(), DateTime.Now);
 
-                    WriteWav(
-                        Path.Combine(folder, "Original.wav"),
-                        _original,
-                        outputFormat,
-                        useStereo);
+                    WriteWav(Path.Combine(folder, "Original.wav"), _original, outputFormat, useStereo);
 
 
                     // Compensate for the lookahead latency in the A/B export.
@@ -482,8 +444,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
                             LookaheadTransientController.LookaheadMilliseconds /
                             1000.0));
 
-                    int latencySamples = checked(
-                        latencyFrames * _format.Channels);
+                    int latencySamples = checked(latencyFrames * _format.Channels);
 
                     // Shift the delayed audio back to its original timeline.
                     Array.Copy(
@@ -499,15 +460,10 @@ namespace SmartQuietCinema.Platform.Windows.Capture
                         alignedProcessed.Length - latencySamples,
                         latencySamples);
 
-                    WriteWav(
-                        Path.Combine(folder, "Processed.wav"),
-                        alignedProcessed,
-                        outputFormat,
-                        useStereo);
+                    WriteWav(Path.Combine(folder, "Processed.wav"), alignedProcessed, outputFormat, useStereo);
 
 
-                    Debug.WriteLine(
-                        $"[SmartQuietCinema] A/B saved: {folder}");
+                    Debug.WriteLine($"[SmartQuietCinema] A/B saved: {folder}");
 
                     Debug.WriteLine(
                         $"[SmartQuietCinema] A/B format: " +
@@ -517,8 +473,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine(
-                        $"[SmartQuietCinema] A/B saving failed: {ex}");
+                    Debug.WriteLine($"[SmartQuietCinema] A/B saving failed: {ex}");
                 }
             }
 
@@ -531,14 +486,12 @@ namespace SmartQuietCinema.Platform.Windows.Capture
                 WaveFormat outputFormat,
                 bool useStereo)
             {
-                using var writer = new WaveFileWriter(
-                    path, outputFormat);
+                using var writer = new WaveFileWriter(path, outputFormat);
 
                 if (!useStereo)
                 {
                     // Preserve the original multichannel format.
-                    writer.Write(
-                        MemoryMarshal.AsBytes(samples.AsSpan()));
+                    writer.Write(MemoryMarshal.AsBytes(samples.AsSpan()));
 
                     return;
                 }
@@ -554,27 +507,20 @@ namespace SmartQuietCinema.Platform.Windows.Capture
                      offset < totalFrames;
                      offset += chunkFrames)
                 {
-                    int frames = Math.Min(
-                        chunkFrames,
-                        totalFrames - offset);
+                    int frames = Math.Min(chunkFrames, totalFrames - offset);
 
                     for (int frame = 0; frame < frames; frame++)
                     {
-                        int sourceIndex =
-                            (offset + frame) * _format.Channels;
+                        int sourceIndex = (offset + frame) * _format.Channels;
 
                         int destinationIndex = frame * 2;
 
-                        stereoBuffer[destinationIndex] =
-                            samples[sourceIndex];
+                        stereoBuffer[destinationIndex] = samples[sourceIndex];
 
-                        stereoBuffer[destinationIndex + 1] =
-                            samples[sourceIndex + 1];
+                        stereoBuffer[destinationIndex + 1] = samples[sourceIndex + 1];
                     }
 
-                    writer.Write(
-                        MemoryMarshal.AsBytes(
-                            stereoBuffer.AsSpan(0, frames * 2)));
+                    writer.Write(MemoryMarshal.AsBytes(stereoBuffer.AsSpan(0, frames * 2)));
                 }
             }
         }

@@ -37,17 +37,14 @@ namespace SmartQuietCinema.Core.DSP
         /// <summary>
         /// Gets the currently applied gain in decibels.
         /// </summary>
-        public double CurrentGainDb =>
-            DecibelFactor * Math.Log10(_currentLinearGain);
+        public double CurrentGainDb => DecibelFactor * Math.Log10(_currentLinearGain);
 
         /// <summary>
         /// Initializes a new adaptive dynamics processor.
         /// </summary>
         public AdaptiveDynamicsProcessor()
         {
-            _levelDetector = new AudioLevelDetector(
-                DetectorAttackMs,
-                DetectorReleaseMs);
+            _levelDetector = new AudioLevelDetector(DetectorAttackMs, DetectorReleaseMs);
 
             _gainCurve = new AdaptiveGainCurve();
         }
@@ -75,52 +72,35 @@ namespace SmartQuietCinema.Core.DSP
 
             if (samples.Length % channels != 0)
             {
-                throw new ArgumentException(
-                    "The buffer length must be divisible by the channel count.",
-                    nameof(samples));
+                throw new ArgumentException("The buffer length must be divisible by the channel count.", nameof(samples));
             }
 
             // Calculate smoothing coefficients once per buffer.
-            double attackCoefficient = Math.Exp(
-                -1000.0 / (GainReductionAttackMs * sampleRate));
+            double attackCoefficient = Math.Exp(-1000.0 / (GainReductionAttackMs * sampleRate));
 
-            double releaseCoefficient = Math.Exp(
-                -1000.0 / (GainRecoveryReleaseMs * sampleRate));
+            double releaseCoefficient = Math.Exp(-1000.0 / (GainRecoveryReleaseMs * sampleRate));
 
             // Process complete audio frames to preserve
             // channel synchronization.
             for (int i = 0; i < samples.Length; i += channels)
             {
-                ReadOnlySpan<float> frame =
-                    samples.Slice(i, channels);
+                ReadOnlySpan<float> frame = samples.Slice(i, channels);
 
                 // Analyze the original frame before modification.
-                double detectedLevel = _levelDetector.AnalyzeFrame(
-                    frame,
-                    sampleRate);
+                double detectedLevel = _levelDetector.AnalyzeFrame(frame, sampleRate);
 
                 // Convert the measured linear amplitude to dBFS.
-                double levelDb = detectedLevel > 0
-                    ? DecibelFactor * Math.Log10(detectedLevel)
-                    : double.NegativeInfinity;
+                double levelDb = detectedLevel > 0 ? DecibelFactor * Math.Log10(detectedLevel) : double.NegativeInfinity;
 
                 // Calculate the desired gain adjustment.
-                double targetGainDb =
-                    _gainCurve.CalculateTargetGainDb(levelDb);
+                double targetGainDb = _gainCurve.CalculateTargetGainDb(levelDb);
 
-                double targetLinearGain = Math.Pow(
-                    10.0,
-                    targetGainDb / DecibelFactor);
+                double targetLinearGain = Math.Pow(10.0, targetGainDb / DecibelFactor);
 
                 // Reduce gain quickly, but recover more slowly.
-                double coefficient =
-                    targetLinearGain < _currentLinearGain
-                        ? attackCoefficient
-                        : releaseCoefficient;
+                double coefficient = targetLinearGain < _currentLinearGain ? attackCoefficient : releaseCoefficient;
 
-                _currentLinearGain =
-                    targetLinearGain +
-                    coefficient * (_currentLinearGain - targetLinearGain);
+                _currentLinearGain = targetLinearGain + coefficient * (_currentLinearGain - targetLinearGain);
 
                 // Apply the same gain to every channel in the frame.
                 for (int channel = 0; channel < channels; channel++)

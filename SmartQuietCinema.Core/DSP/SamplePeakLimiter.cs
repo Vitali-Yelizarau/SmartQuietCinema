@@ -32,20 +32,16 @@ namespace SmartQuietCinema.Core.DSP
             Span<float> frame,
             int sampleRate)
         {
-            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
-                sampleRate);
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
 
             if (frame.IsEmpty)
             {
-                throw new ArgumentException(
-                    "The audio frame must not be empty.",
-                    nameof(frame));
+                throw new ArgumentException("The audio frame must not be empty.", nameof(frame));
             }
 
             if (_cachedSampleRate != sampleRate)
             {
-                _releaseCoefficient = Math.Exp(
-                    -1000.0 / (ReleaseMilliseconds * sampleRate));
+                _releaseCoefficient = Math.Exp(-1000.0 / (ReleaseMilliseconds * sampleRate));
 
                 _cachedSampleRate = sampleRate;
             }
@@ -60,15 +56,11 @@ namespace SmartQuietCinema.Core.DSP
                     continue;
                 }
 
-                peak = Math.Max(
-                    peak,
-                    Math.Abs((double)frame[i]));
+                peak = Math.Max(peak, Math.Abs((double)frame[i]));
             }
 
             // Determine the gain required to respect the ceiling.
-            double requiredGain = peak > Ceiling
-                ? Ceiling / peak
-                : 1.0;
+            double requiredGain = peak > Ceiling ? Ceiling / peak : 1.0;
 
             if (requiredGain < _currentGain)
             {
@@ -84,8 +76,7 @@ namespace SmartQuietCinema.Core.DSP
             // Apply identical gain to all channels.
             for (int i = 0; i < frame.Length; i++)
             {
-                frame[i] = (float)(
-                    frame[i] * _currentGain);
+                frame[i] = (float)(frame[i] * _currentGain);
             }
         }
 

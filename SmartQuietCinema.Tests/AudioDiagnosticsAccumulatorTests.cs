@@ -11,15 +11,9 @@ namespace SmartQuietCinema.Tests
         {
             var diagnostics = new AudioDiagnosticsAccumulator();
 
-            diagnostics.Add(
-                [0.2f, -0.4f],
-                [0.1f, -0.2f],
-                -3.0);
+            diagnostics.Add([0.2f, -0.4f], [0.1f, -0.2f], -3.0);
 
-            diagnostics.Add(
-                [0.8f, -0.6f],
-                [0.4f, -0.3f],
-                2.0);
+            diagnostics.Add([0.8f, -0.6f], [0.4f, -0.3f], 2.0);
 
             var result = diagnostics.TakeSnapshot();
 
@@ -37,10 +31,7 @@ namespace SmartQuietCinema.Tests
         {
             var diagnostics = new AudioDiagnosticsAccumulator();
 
-            diagnostics.Add(
-                [0.1f, 1.0f, 0.1f],
-                [0.1f, 0.5f, 0.1f],
-                -6.0);
+            diagnostics.Add([0.1f, 1.0f, 0.1f], [0.1f, 0.5f, 0.1f], -6.0);
 
             var result = diagnostics.TakeSnapshot();
 
@@ -53,10 +44,7 @@ namespace SmartQuietCinema.Tests
         {
             var diagnostics = new AudioDiagnosticsAccumulator();
 
-            diagnostics.Add(
-                [0.5f],
-                [0.25f],
-                -6.0);
+            diagnostics.Add([0.5f], [0.25f], -6.0);
 
             diagnostics.TakeSnapshot();
 

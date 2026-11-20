@@ -459,15 +459,9 @@ namespace SmartQuietCinema.Tests
             // Quiet audio must retain its level after the delay.
             int firstOutputFrame = processor.LatencyFrames;
 
-            Assert.InRange(
-                samples[firstOutputFrame],
-                0.009999f,
-                0.010001f);
+            Assert.InRange(samples[firstOutputFrame], 0.009999f, 0.010001f);
 
-            Assert.InRange(
-                samples[^1],
-                0.009999f,
-                0.010001f);
+            Assert.InRange(samples[^1], 0.009999f, 0.010001f);
             Assert.Equal(0.0, processor.CurrentReductionDb);
         }
 

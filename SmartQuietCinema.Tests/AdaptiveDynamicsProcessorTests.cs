@@ -14,8 +14,7 @@ namespace SmartQuietCinema.Tests
 
             processor.Process(samples, 1, 48000);
 
-            Assert.All(samples, sample =>
-                Assert.Equal(0f, sample));
+            Assert.All(samples, sample => Assert.Equal(0f, sample));
 
             Assert.Equal(0.0, processor.CurrentGainDb, 6);
         }
@@ -215,15 +214,9 @@ namespace SmartQuietCinema.Tests
 
             fullProcessor.Process(fullBuffer, 2, 48000);
 
-            splitProcessor.Process(
-                splitBuffer.AsSpan(0, 1200),
-                2,
-                48000);
+            splitProcessor.Process(splitBuffer.AsSpan(0, 1200), 2, 48000);
 
-            splitProcessor.Process(
-                splitBuffer.AsSpan(1200),
-                2,
-                48000);
+            splitProcessor.Process(splitBuffer.AsSpan(1200), 2, 48000);
 
             for (int i = 0; i < original.Length; i++)
             {

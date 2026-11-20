@@ -85,8 +85,7 @@ namespace SmartQuietCinema.Core.DSP
         /// <summary>
         /// Gets the current transient attenuation in decibels.
         /// </summary>
-        public double CurrentReductionDb =>
-            20.0 * Math.Log10(_currentGain);
+        public double CurrentReductionDb => 20.0 * Math.Log10(_currentGain);
 
         /// <summary>
         /// Replaces interleaved input samples with delayed, transient-controlled output.
@@ -124,21 +123,16 @@ namespace SmartQuietCinema.Core.DSP
         /// <param name="sampleRate">The sample rate in Hertz.</param>
         private void ProcessCore(Span<float> samples, ReadOnlySpan<float> originalSamples, int channels, int sampleRate)
         {
-            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
-                channels);
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(channels);
 
-            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
-                sampleRate);
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
 
             if (samples.Length % channels != 0)
             {
-                throw new ArgumentException(
-                    "The buffer must contain complete audio frames.",
-                    nameof(samples));
+                throw new ArgumentException("The buffer must contain complete audio frames.", nameof(samples));
             }
 
-            if (_sampleRate != sampleRate ||
-                _channels != channels)
+            if (_sampleRate != sampleRate || _channels != channels)
             {
                 Configure(channels, sampleRate);
             }
@@ -166,9 +160,7 @@ namespace SmartQuietCinema.Core.DSP
                         samples[offset + channel] = sample;
                     }
 
-                    framePeak = Math.Max(
-                        framePeak,
-                        Math.Abs((double)sample));
+                    framePeak = Math.Max(framePeak, Math.Abs((double)sample));
                 }
 
                 // Track recent peaks with gradual decay.
@@ -181,16 +173,11 @@ namespace SmartQuietCinema.Core.DSP
                         ? _referenceAttackCoefficient
                         : _referenceReleaseCoefficient;
 
-                _referenceEnvelope =
-                    _peakEnvelope +
-                    referenceCoefficient *
-                    (_referenceEnvelope - _peakEnvelope);
+                _referenceEnvelope = _peakEnvelope + referenceCoefficient * (_referenceEnvelope - _peakEnvelope);
 
                 // Only the excess above the established level
                 // is considered a transient.
-                double transientExcess = Math.Max(
-                    0.0,
-                    _peakEnvelope - _referenceEnvelope);
+                double transientExcess = Math.Max(0.0, _peakEnvelope - _referenceEnvelope);
 
                 double normalizedTransient = Math.Clamp(
                     (transientExcess - TriggerExcessPeak) /
@@ -233,13 +220,9 @@ namespace SmartQuietCinema.Core.DSP
                 }
 
                 // Reduce gain quickly and restore it smoothly.
-                double coefficient = targetGain < _currentGain
-                    ? _attackCoefficient
-                    : _releaseCoefficient;
+                double coefficient = targetGain < _currentGain ? _attackCoefficient : _releaseCoefficient;
 
-                _currentGain =
-                    targetGain +
-                    coefficient * (_currentGain - targetGain);
+                _currentGain = targetGain + coefficient * (_currentGain - targetGain);
 
                 double outputGain = _currentGain;
                 if (enhanceQuiet)
@@ -256,14 +239,11 @@ namespace SmartQuietCinema.Core.DSP
                 // frames for future output.
                 for (int channel = 0; channel < channels; channel++)
                 {
-                    float delayedSample =
-                        _delayBuffer[delayOffset + channel];
+                    float delayedSample = _delayBuffer[delayOffset + channel];
 
-                    _delayBuffer[delayOffset + channel] =
-                        samples[offset + channel];
+                    _delayBuffer[delayOffset + channel] = samples[offset + channel];
 
-                    samples[offset + channel] =
-                        (float)(delayedSample * outputGain);
+                    samples[offset + channel] = (float)(delayedSample * outputGain);
                 }
 
                 _writeFrame++;
