@@ -51,20 +51,12 @@ public static class LanguageCatalog
     /// </returns>
     public static string GetDisplayCode(string cultureCode)
     {
-        var dCode = AvailableLanguages.FirstOrDefault(language =>
-        string.Equals(
-            language.CultureCode,
-            cultureCode,
-            StringComparison.OrdinalIgnoreCase))?.DisplayCode;
+        var dCode = AvailableLanguages.FirstOrDefault(language => string.Equals(language.CultureCode, cultureCode, StringComparison.OrdinalIgnoreCase))?.DisplayCode;
 
         if (dCode is not null) return dCode;
 
         var neutralCode = CultureInfo.GetCultureInfo(cultureCode).TwoLetterISOLanguageName;
 
-        return AvailableLanguages.FirstOrDefault(language =>
-            string.Equals(
-                language.CultureCode,
-                neutralCode,
-                StringComparison.OrdinalIgnoreCase))?.DisplayCode ?? "EN";
+        return AvailableLanguages.FirstOrDefault(language => string.Equals(language.CultureCode, neutralCode, StringComparison.OrdinalIgnoreCase))?.DisplayCode ?? "EN";
     }
 }

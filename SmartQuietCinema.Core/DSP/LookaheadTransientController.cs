@@ -143,9 +143,7 @@ namespace SmartQuietCinema.Core.DSP
             if (!enhanceQuiet && !samples.IsEmpty && _quietFrame != 0)
                 ResetQuietGain();
 
-            for (int offset = 0;
-                 offset < samples.Length;
-                 offset += channels)
+            for (int offset = 0; offset < samples.Length; offset += channels)
             {
                 double framePeak = 0.0;
 
@@ -168,10 +166,7 @@ namespace SmartQuietCinema.Core.DSP
                 _peakEnvelope = Math.Max(framePeak, decayedPeak);
 
                 // Track the established peak level more slowly.
-                double referenceCoefficient =
-                    _peakEnvelope > _referenceEnvelope
-                        ? _referenceAttackCoefficient
-                        : _referenceReleaseCoefficient;
+                double referenceCoefficient = _peakEnvelope > _referenceEnvelope ? _referenceAttackCoefficient : _referenceReleaseCoefficient;
 
                 _referenceEnvelope = _peakEnvelope + referenceCoefficient * (_referenceEnvelope - _peakEnvelope);
 
@@ -179,11 +174,7 @@ namespace SmartQuietCinema.Core.DSP
                 // is considered a transient.
                 double transientExcess = Math.Max(0.0, _peakEnvelope - _referenceEnvelope);
 
-                double normalizedTransient = Math.Clamp(
-                    (transientExcess - TriggerExcessPeak) /
-                    (FullReductionExcessPeak - TriggerExcessPeak),
-                    0.0,
-                    1.0);
+                double normalizedTransient = Math.Clamp((transientExcess - TriggerExcessPeak) / (FullReductionExcessPeak - TriggerExcessPeak), 0.0, 1.0);
 
                 if (transientExcess <= TriggerExcessPeak)
                 {

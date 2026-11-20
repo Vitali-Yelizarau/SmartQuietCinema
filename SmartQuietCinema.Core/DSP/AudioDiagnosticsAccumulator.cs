@@ -31,10 +31,7 @@ namespace SmartQuietCinema.Core.DSP
         /// <summary>
         /// Adds input and processed samples to the current interval.
         /// </summary>
-        public void Add(
-            ReadOnlySpan<float> input,
-            ReadOnlySpan<float> output,
-            double gainDb)
+        public void Add(ReadOnlySpan<float> input, ReadOnlySpan<float> output, double gainDb)
         {
             if (input.Length != output.Length)
             {

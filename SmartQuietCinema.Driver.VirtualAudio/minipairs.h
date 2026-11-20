@@ -36,9 +36,7 @@ static KSDATARANGE_AUDIO VirtualRenderRange = {
       STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM), STATICGUIDOF(KSDATAFORMAT_SPECIFIER_WAVEFORMATEX) },
     2, 16, 16, 44100, 48000
 };
-static PKSDATARANGE VirtualRenderRanges[] = {
-    reinterpret_cast<PKSDATARANGE>(&VirtualRenderRange), reinterpret_cast<PKSDATARANGE>(&PinDataRangeAttributeList)
-};
+static PKSDATARANGE VirtualRenderRanges[] = { reinterpret_cast<PKSDATARANGE>(&VirtualRenderRange), reinterpret_cast<PKSDATARANGE>(&PinDataRangeAttributeList) };
 
 // Render3 is the existing SysVAD two-pin layout with no offload or hardware loopback.
 static PCPIN_DESCRIPTOR VirtualWavePins[] = {
@@ -62,9 +60,7 @@ static PCFILTER_DESCRIPTOR VirtualWaveDescriptor = {
     sizeof(PCNODE_DESCRIPTOR), ARRAYSIZE(VirtualWaveNodes), VirtualWaveNodes,
     ARRAYSIZE(VirtualWaveConnections), VirtualWaveConnections, 0, nullptr
 };
-static PHYSICALCONNECTIONTABLE VirtualPhysicalConnections[] = {
-    { KSPIN_TOPO_WAVEOUT_SOURCE, KSPIN_WAVE_RENDER3_SOURCE, CONNECTIONTYPE_WAVE_OUTPUT }
-};
+static PHYSICALCONNECTIONTABLE VirtualPhysicalConnections[] = { { KSPIN_TOPO_WAVEOUT_SOURCE, KSPIN_WAVE_RENDER3_SOURCE, CONNECTIONTYPE_WAVE_OUTPUT } };
 static ENDPOINT_MINIPAIR VirtualRender = {
     eSpeakerDevice, L"SqcVirtualTopology", nullptr, CreateMiniportTopologySYSVAD, &SpeakerTopoMiniportFilterDescriptor, 0, nullptr,
     L"SqcVirtualWave", nullptr, CreateMiniportWaveRTSYSVAD, &VirtualWaveDescriptor, 0, nullptr,

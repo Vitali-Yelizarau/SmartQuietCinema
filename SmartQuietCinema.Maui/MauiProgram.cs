@@ -22,9 +22,7 @@ namespace SmartQuietCinema.Maui
 
 #if WINDOWS
             // Register the Windows-specific audio output device provider.
-            builder.Services.AddSingleton<
-                IAudioOutputDeviceProvider,
-                WindowsAudioDeviceEnumerator>();
+            builder.Services.AddSingleton<IAudioOutputDeviceProvider, WindowsAudioDeviceEnumerator>();
 
             // Register the main page ViewModel.
             builder.Services.AddTransient<MainPageViewModel>();

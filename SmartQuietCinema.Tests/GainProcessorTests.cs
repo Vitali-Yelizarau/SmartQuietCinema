@@ -57,8 +57,7 @@ namespace SmartQuietCinema.Tests
         [InlineData(double.NaN)]
         [InlineData(double.PositiveInfinity)]
         [InlineData(double.NegativeInfinity)]
-        public void Constructor_InvalidGain_ThrowsException(
-            double gainDb)
+        public void Constructor_InvalidGain_ThrowsException(double gainDb)
         {
             Assert.Throws<ArgumentOutOfRangeException>(() => new GainProcessor(gainDb));
         }

@@ -44,13 +44,7 @@ namespace SmartQuietCinema.Tests
 
             var splitBufferDetector = new AudioLevelDetector(10, 100);
 
-            float[] samples =
-            {
-                0.2f, -0.2f,
-                0.4f, -0.4f,
-                0.6f, -0.6f,
-                0.3f, -0.3f
-            };
+            float[] samples = { 0.2f, -0.2f, 0.4f, -0.4f, 0.6f, -0.6f, 0.3f, -0.3f };
 
             singleBufferDetector.Analyze(samples, 2, 1000);
 
@@ -68,13 +62,7 @@ namespace SmartQuietCinema.Tests
             var bufferDetector = new AudioLevelDetector(10, 100);
             var frameDetector = new AudioLevelDetector(10, 100);
 
-            float[] samples =
-            {
-        0.2f, -0.2f,
-        0.4f, -0.4f,
-        0.6f, -0.6f,
-        0.3f, -0.3f
-    };
+            float[] samples = { 0.2f, -0.2f, 0.4f, -0.4f, 0.6f, -0.6f, 0.3f, -0.3f };
 
             bufferDetector.Analyze(samples, 2, 1000);
 
@@ -115,13 +103,7 @@ namespace SmartQuietCinema.Tests
 
             float[] stereoFrame = { 0.1f, 0.1f };
 
-            float[] surroundFrame =
-            [
-                0.1f, 0.1f,
-                0.0f, 0.0f,
-                0.0f, 0.0f,
-                0.0f, 0.0f
-            ];
+            float[] surroundFrame = [0.1f, 0.1f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f];
 
             // Process one second of identical stereo content
             // represented in two different channel layouts.

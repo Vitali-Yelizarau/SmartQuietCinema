@@ -90,10 +90,7 @@ namespace SmartQuietCinema.Core.DSP
         /// Thrown when the buffer length is not divisible
         /// by the number of channels.
         /// </exception>
-        public void Process(
-            Span<float> samples,
-            int channels,
-            int sampleRate)
+        public void Process(Span<float> samples, int channels, int sampleRate)
         {
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(channels);
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);

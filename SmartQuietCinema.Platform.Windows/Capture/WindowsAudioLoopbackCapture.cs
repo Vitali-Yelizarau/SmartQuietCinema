@@ -89,10 +89,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
 
             try
             {
-                recorder = new WasapiRecorderBuilder()
-                    .WithDevice(device)
-                    .WithLoopbackCapture()
-                    .Build();
+                recorder = new WasapiRecorderBuilder().WithDevice(device).WithLoopbackCapture().Build();
 
                 // Log the audio format used by the selected output device.
                 var format = recorder.WaveFormat;
@@ -138,9 +135,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
 
                 if (!isFloat32)
                 {
-                    Debug.WriteLine(
-                        "[SmartQuietCinema] DSP test skipped: " +
-                        "the audio format is not supported.");
+                    Debug.WriteLine("[SmartQuietCinema] DSP test skipped: " + "the audio format is not supported.");
                 }
 
                 // Process every captured audio buffer.
@@ -231,16 +226,9 @@ namespace SmartQuietCinema.Platform.Windows.Capture
 
                         for (int channel = 0; channel < format.Channels; channel++)
                         {
-                            double rms = channelSampleCounts[channel] > 0
-                                ? Math.Sqrt(
-                                    channelSumSquares[channel] /
-                                    channelSampleCounts[channel])
-                                : 0.0;
+                            double rms = channelSampleCounts[channel] > 0 ? Math.Sqrt(channelSumSquares[channel] / channelSampleCounts[channel]) : 0.0;
 
-                            channelReport +=
-                                $" | Ch{channel + 1}: " +
-                                $"Peak={channelPeaks[channel]:F4}, " +
-                                $"RMS={rms:F4}";
+                            channelReport += $" | Ch{channel + 1}: " + $"Peak={channelPeaks[channel]:F4}, " + $"RMS={rms:F4}";
                         }
 
                         Debug.WriteLine(channelReport);
@@ -323,9 +311,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
             private int _writtenSamples;
             private bool _completed;
 
-            public AbComparisonCapture(
-                WaveFormat format,
-                int durationSeconds)
+            public AbComparisonCapture(WaveFormat format, int durationSeconds)
             {
                 ArgumentNullException.ThrowIfNull(format);
                 ArgumentOutOfRangeException.ThrowIfNegativeOrZero(durationSeconds);
@@ -341,9 +327,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
             /// <summary>
             /// Copies paired audio samples without performing disk I/O.
             /// </summary>
-            public void Add(
-                ReadOnlySpan<float> original,
-                ReadOnlySpan<float> processed)
+            public void Add(ReadOnlySpan<float> original, ReadOnlySpan<float> processed)
             {
                 if (original.Length != processed.Length || original.Length % _format.Channels != 0)
                 {
@@ -396,12 +380,9 @@ namespace SmartQuietCinema.Platform.Windows.Capture
                     return false;
                 }
 
-                for (int i = 0; i < _original.Length;
-                     i += _format.Channels)
+                for (int i = 0; i < _original.Length; i += _format.Channels)
                 {
-                    for (int channel = 2;
-                         channel < _format.Channels;
-                         channel++)
+                    for (int channel = 2; channel < _format.Channels; channel++)
                     {
                         float sample = _original[i + channel];
 
@@ -424,10 +405,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
                 {
                     bool useStereo = ContainsOnlyStereoAudio();
 
-                    WaveFormat outputFormat = useStereo
-                        ? WaveFormat.CreateIeeeFloatWaveFormat(
-                            _format.SampleRate, 2)
-                        : _format;
+                    WaveFormat outputFormat = useStereo ? WaveFormat.CreateIeeeFloatWaveFormat(_format.SampleRate, 2) : _format;
 
                     string folder = WindowsSampleStorage.CreateCaptureDirectory(WindowsSampleStorage.GetDefaultRoot(), DateTime.Now);
 
@@ -437,28 +415,15 @@ namespace SmartQuietCinema.Platform.Windows.Capture
                     // Compensate for the lookahead latency in the A/B export.
                     float[] alignedProcessed = (float[])_processed.Clone();
 
-                    int latencyFrames = Math.Max(
-                        1,
-                        (int)Math.Ceiling(
-                            _format.SampleRate *
-                            LookaheadTransientController.LookaheadMilliseconds /
-                            1000.0));
+                    int latencyFrames = Math.Max(1, (int)Math.Ceiling(_format.SampleRate * LookaheadTransientController.LookaheadMilliseconds / 1000.0));
 
                     int latencySamples = checked(latencyFrames * _format.Channels);
 
                     // Shift the delayed audio back to its original timeline.
-                    Array.Copy(
-                        alignedProcessed,
-                        latencySamples,
-                        alignedProcessed,
-                        0,
-                        alignedProcessed.Length - latencySamples);
+                    Array.Copy(alignedProcessed, latencySamples, alignedProcessed, 0, alignedProcessed.Length - latencySamples);
 
                     // The last frames have no corresponding captured future audio.
-                    Array.Clear(
-                        alignedProcessed,
-                        alignedProcessed.Length - latencySamples,
-                        latencySamples);
+                    Array.Clear(alignedProcessed, alignedProcessed.Length - latencySamples, latencySamples);
 
                     WriteWav(Path.Combine(folder, "Processed.wav"), alignedProcessed, outputFormat, useStereo);
 
@@ -480,11 +445,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
             /// <summary>
             /// Writes interleaved IEEE Float samples into a WAV file.
             /// </summary>
-            private void WriteWav(
-                string path,
-                float[] samples,
-                WaveFormat outputFormat,
-                bool useStereo)
+            private void WriteWav(string path, float[] samples, WaveFormat outputFormat, bool useStereo)
             {
                 using var writer = new WaveFileWriter(path, outputFormat);
 
@@ -503,9 +464,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
 
                 int totalFrames = samples.Length / _format.Channels;
 
-                for (int offset = 0;
-                     offset < totalFrames;
-                     offset += chunkFrames)
+                for (int offset = 0; offset < totalFrames; offset += chunkFrames)
                 {
                     int frames = Math.Min(chunkFrames, totalFrames - offset);
 

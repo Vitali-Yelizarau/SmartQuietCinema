@@ -23,9 +23,7 @@ namespace SmartQuietCinema.Core.DSP
         /// <summary>
         /// Calculates RMS using channels currently carrying signal.
         /// </summary>
-        public double Calculate(
-            ReadOnlySpan<float> frame,
-            int sampleRate)
+        public double Calculate(ReadOnlySpan<float> frame, int sampleRate)
         {
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
 

@@ -46,9 +46,6 @@ namespace SmartQuietCinema.Core.Interfaces
         /// The method must preserve the number of samples
         /// and the original channel ordering.
         /// </remarks>
-        void Process(
-            Span<float> samples,
-            int channels,
-            int sampleRate);
+        void Process(Span<float> samples, int channels, int sampleRate);
     }
 }

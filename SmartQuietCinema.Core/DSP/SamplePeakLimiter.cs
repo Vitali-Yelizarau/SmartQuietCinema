@@ -28,9 +28,7 @@ namespace SmartQuietCinema.Core.DSP
         /// <param name="sampleRate">
         /// Audio sample rate in Hertz.
         /// </param>
-        public void ProcessFrame(
-            Span<float> frame,
-            int sampleRate)
+        public void ProcessFrame(Span<float> frame, int sampleRate)
         {
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
 

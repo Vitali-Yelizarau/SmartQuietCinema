@@ -116,18 +116,9 @@ internal static class Program
             capture = new CaptureBuffer(format, maximumSeconds: 8);
             await using var first = new WasapiPlayerBuilder().WithDevice(endpoint).WithSharedMode().WithEventSync().Build();
             await using var second = new WasapiPlayerBuilder().WithDevice(endpoint).WithSharedMode().WithEventSync().Build();
-            recorder.RecordingStopped += (_, eventArgs) =>
-            {
-                if (eventArgs.Exception is not null) failures.TrySetResult(eventArgs.Exception);
-            };
-            first.PlaybackStopped += (_, eventArgs) =>
-            {
-                if (eventArgs.Exception is not null) failures.TrySetResult(eventArgs.Exception);
-            };
-            second.PlaybackStopped += (_, eventArgs) =>
-            {
-                if (eventArgs.Exception is not null) failures.TrySetResult(eventArgs.Exception);
-            };
+            recorder.RecordingStopped += (_, eventArgs) => { if (eventArgs.Exception is not null) failures.TrySetResult(eventArgs.Exception); };
+            first.PlaybackStopped += (_, eventArgs) => { if (eventArgs.Exception is not null) failures.TrySetResult(eventArgs.Exception); };
+            second.PlaybackStopped += (_, eventArgs) => { if (eventArgs.Exception is not null) failures.TrySetResult(eventArgs.Exception); };
             recorder.DataAvailable += (packet, flags, position, _) => capture.Append(packet, flags, position);
             first.Init(new PcmMarkers.Source(0, sourceRate));
             second.Init(new PcmMarkers.Source(1, sourceRate));

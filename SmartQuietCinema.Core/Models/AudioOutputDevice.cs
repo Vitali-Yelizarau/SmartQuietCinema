@@ -13,7 +13,5 @@ namespace SmartQuietCinema.Core.Models
     /// A human-readable device name intended
     /// for display in the user interface.
     /// </param>
-    public sealed record AudioOutputDevice(
-        string Id,
-        string Name);
+    public sealed record AudioOutputDevice(string Id, string Name);
 }

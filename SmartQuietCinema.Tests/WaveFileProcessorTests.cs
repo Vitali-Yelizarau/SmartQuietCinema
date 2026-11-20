@@ -127,9 +127,7 @@ namespace SmartQuietCinema.Tests
         {
             string inputPath = Path.Combine(_directory.FullName, "integer.wav");
             string outputPath = Path.Combine(_directory.FullName, "output.wav");
-            WaveFormat format = extensible
-                ? new WaveFormatExtensible(48000, 32, 2, AudioMediaSubtypes.MEDIASUBTYPE_PCM, 32, 0)
-                : new WaveFormat(48000, 32, 2);
+            WaveFormat format = extensible ? new WaveFormatExtensible(48000, 32, 2, AudioMediaSubtypes.MEDIASUBTYPE_PCM, 32, 0) : new WaveFormat(48000, 32, 2);
             WriteWave(inputPath, format, new byte[8]);
 
             Assert.Throws<NotSupportedException>(() => WaveFileProcessor.Process(inputPath, outputPath));

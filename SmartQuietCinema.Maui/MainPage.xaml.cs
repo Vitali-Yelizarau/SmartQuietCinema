@@ -75,9 +75,7 @@ namespace SmartQuietCinema.Maui
         /// <param name="e">
         /// Event arguments.
         /// </param>
-        private void OnStatisticsTimerTick(
-            object? sender,
-            EventArgs e)
+        private void OnStatisticsTimerTick(object? sender, EventArgs e)
         {
             _viewModel.RefreshCaptureStatistics();
         }
@@ -93,9 +91,7 @@ namespace SmartQuietCinema.Maui
         /// <param name="e">
         /// The event arguments.
         /// </param>
-        private async void OnAudioOutputDeviceChanged(
-            object? sender,
-            EventArgs e)
+        private async void OnAudioOutputDeviceChanged(object? sender, EventArgs e)
         {
             if (BindingContext is not MainPageViewModel viewModel)
                 return;

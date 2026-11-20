@@ -35,9 +35,7 @@ namespace SmartQuietCinema.Core.DSP
         /// <param name="releaseMilliseconds">
         /// Time constant used when the signal level falls.
         /// </param>
-        public AudioLevelDetector(
-            double attackMilliseconds,
-            double releaseMilliseconds)
+        public AudioLevelDetector(double attackMilliseconds, double releaseMilliseconds)
         {
             if (!double.IsFinite(attackMilliseconds) || attackMilliseconds <= 0)
             {
@@ -66,10 +64,7 @@ namespace SmartQuietCinema.Core.DSP
         /// <param name="sampleRate">
         /// Audio sample rate in Hertz.
         /// </param>
-        public void Analyze(
-            ReadOnlySpan<float> samples,
-            int channels,
-            int sampleRate)
+        public void Analyze(ReadOnlySpan<float> samples, int channels, int sampleRate)
         {
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(channels);
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
@@ -101,9 +96,7 @@ namespace SmartQuietCinema.Core.DSP
         /// <returns>
         /// The updated smoothed signal level.
         /// </returns>
-        public double AnalyzeFrame(
-            ReadOnlySpan<float> frame,
-            int sampleRate)
+        public double AnalyzeFrame(ReadOnlySpan<float> frame, int sampleRate)
         {
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
 

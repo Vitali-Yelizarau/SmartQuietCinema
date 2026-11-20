@@ -118,8 +118,7 @@ namespace SmartQuietCinema.Tools.AudioTestBench
                 tailSamples -= padding.Length;
             }
 
-            var wave = new WaveProcessingResult(sampleRate, channels, totalFrames,
-                inputLevels.Rms, inputLevels.Peak, outputLevels.Rms, outputLevels.Peak);
+            var wave = new WaveProcessingResult(sampleRate, channels, totalFrames, inputLevels.Rms, inputLevels.Peak, outputLevels.Rms, outputLevels.Peak);
             return (wave, Array.ConvertAll(intervalLevels, static interval => interval.ToMeasurement()));
         }
 
@@ -225,8 +224,7 @@ namespace SmartQuietCinema.Tools.AudioTestBench
 
             return format switch
             {
-                WaveFormatExtensible extensible => extensible.ValidBitsPerSample == 32
-                    && extensible.SubFormat == AudioMediaSubtypes.MEDIASUBTYPE_IEEE_FLOAT,
+                WaveFormatExtensible extensible => extensible.ValidBitsPerSample == 32 && extensible.SubFormat == AudioMediaSubtypes.MEDIASUBTYPE_IEEE_FLOAT,
                 WaveFormatExtraData extra when extra.ExtraData.Length >= 22 => BinaryPrimitives.ReadUInt16LittleEndian(extra.ExtraData) == 32
                     && new Guid(extra.ExtraData.AsSpan(6, 16)) == AudioMediaSubtypes.MEDIASUBTYPE_IEEE_FLOAT,
                 _ => false

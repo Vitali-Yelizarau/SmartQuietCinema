@@ -25,8 +25,7 @@ namespace SmartQuietCinema.Maui.ViewModels
         /// <summary>
         /// Gets whether an active audio capture source is available.
         /// </summary>
-        public bool HasActiveCaptureSource =>
-            _activeCaptureDeviceName is not null;
+        public bool HasActiveCaptureSource => _activeCaptureDeviceName is not null;
 
         /// <summary>
         /// Gets the localized description of the active
@@ -35,10 +34,7 @@ namespace SmartQuietCinema.Maui.ViewModels
         public string ActiveCaptureSourceText =>
             _activeCaptureDeviceName is null
                 ? string.Empty
-                : string.Format(
-                    Localization.Culture,
-                    Localization[nameof(AppResources.CaptureSource)],
-                    _activeCaptureDeviceName);
+                : string.Format(Localization.Culture, Localization[nameof(AppResources.CaptureSource)], _activeCaptureDeviceName);
 
         /// <summary>
         /// Gets the languages available for selection.
@@ -84,14 +80,12 @@ namespace SmartQuietCinema.Maui.ViewModels
         /// <summary>
         /// Gets the command used to toggle the language menu.
         /// </summary>
-        public Command ToggleLanguageMenuCommand =>
-            _toggleLanguageMenuCommand ??= new Command(() => IsLanguageMenuOpen = !IsLanguageMenuOpen);
+        public Command ToggleLanguageMenuCommand => _toggleLanguageMenuCommand ??= new Command(() => IsLanguageMenuOpen = !IsLanguageMenuOpen);
 
         /// <summary>
         /// Gets the command used to change the application language.
         /// </summary>
-        public Command<string> ChangeLanguageCommand =>
-            _changeLanguageCommand ??= new Command<string>(ChangeLanguage);
+        public Command<string> ChangeLanguageCommand => _changeLanguageCommand ??= new Command<string>(ChangeLanguage);
 
         /// <summary>
         /// Changes the application language if it is supported.
@@ -199,9 +193,7 @@ namespace SmartQuietCinema.Maui.ViewModels
         /// Information about the changed property.
         /// </param>
 
-        private void OnLocalizationChanged(
-            object? sender,
-            PropertyChangedEventArgs e)
+        private void OnLocalizationChanged(object? sender, PropertyChangedEventArgs e)
         {
             if (e.PropertyName != nameof(LocalizationService.Culture))
                 return;
@@ -247,35 +239,25 @@ namespace SmartQuietCinema.Maui.ViewModels
         /// Gets the captured byte count formatted
         /// according to the selected UI culture.
         /// </summary>
-        public string CapturedBytesText =>
-            string.Format(
-                Localization.Culture,
-                Localization[nameof(AppResources.CapturedBytes)],
-                CapturedBytes);
+        public string CapturedBytesText => string.Format(Localization.Culture, Localization[nameof(AppResources.CapturedBytes)], CapturedBytes);
 
 
 
         /// <summary>
         /// Gets the current capture status in the selected UI language.
         /// </summary>
-        public string CaptureStatus =>
-            string.Format(
-                Localization.Culture,
-                Localization[_captureStatusKey],
-                _captureStatusArguments);
+        public string CaptureStatus => string.Format(Localization.Culture, Localization[_captureStatusKey], _captureStatusArguments);
 
 
         /// <summary>
         /// Gets the command used to start audio capture.
         /// </summary>
-        public Command StartCaptureCommand =>
-            _startCaptureCommand ??= new Command(async () => await StartCaptureAsync(), CanStartCapture);
+        public Command StartCaptureCommand => _startCaptureCommand ??= new Command(async () => await StartCaptureAsync(), CanStartCapture);
 
         /// <summary>
         /// Gets the command used to stop audio capture.
         /// </summary>
-        public Command StopCaptureCommand =>
-            _stopCaptureCommand ??= new Command(async () => await StopCaptureAsync(), CanStopCapture);
+        public Command StopCaptureCommand => _stopCaptureCommand ??= new Command(async () => await StopCaptureAsync(), CanStopCapture);
 
 
         /// <summary>
@@ -288,9 +270,7 @@ namespace SmartQuietCinema.Maui.ViewModels
         /// <param name="arguments">
         /// Values inserted into the localized message.
         /// </param>
-        private void SetCaptureStatus(
-            string resourceKey,
-            params object?[] arguments)
+        private void SetCaptureStatus(string resourceKey, params object?[] arguments)
         {
             _captureStatusKey = resourceKey;
             _captureStatusArguments = arguments;
@@ -445,14 +425,12 @@ namespace SmartQuietCinema.Maui.ViewModels
         /// <summary>
         /// Determines whether audio capture can be started.
         /// </summary>
-        private bool CanStartCapture() =>
-            !_isBusy && _captureSession is null && SelectedOutputDevice is not null;
+        private bool CanStartCapture() => !_isBusy && _captureSession is null && SelectedOutputDevice is not null;
 
         /// <summary>
         /// Determines whether the active capture can be stopped.
         /// </summary>
-        private bool CanStopCapture() =>
-            !_isBusy && _captureSession is not null;
+        private bool CanStopCapture() => !_isBusy && _captureSession is not null;
 
         /// <summary>
         /// Refreshes the enabled state of capture commands.
