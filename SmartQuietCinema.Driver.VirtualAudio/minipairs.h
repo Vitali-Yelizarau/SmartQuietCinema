@@ -10,18 +10,25 @@
 NTSTATUS CreateMiniportWaveRTSYSVAD(PUNKNOWN*, REFCLSID, PUNKNOWN, POOL_FLAGS, PUNKNOWN, PVOID, PENDPOINT_MINIPAIR);
 NTSTATUS CreateMiniportTopologySYSVAD(PUNKNOWN*, REFCLSID, PUNKNOWN, POOL_FLAGS, PUNKNOWN, PVOID, PENDPOINT_MINIPAIR);
 
+static constexpr int StereoChannels = 2;
+static constexpr int PcmBitsPerSample = 16;
+static constexpr int StereoBlockAlignBytes = 4;
+static constexpr int DefaultSampleRateHz = 48000;
+static constexpr int AlternateSampleRateHz = 44100;
+static constexpr int SystemRenderPinInstances = 1;
+
 /// <summary>Builds a fixed stereo PCM16 format so the advertised rates and buffer alignment agree.</summary>
 static constexpr KSDATAFORMAT_WAVEFORMATEXTENSIBLE StereoFormat(ULONG rate)
 {
     return {
         { sizeof(KSDATAFORMAT_WAVEFORMATEXTENSIBLE), 0, 0, 0, STATICGUIDOF(KSDATAFORMAT_TYPE_AUDIO),
           STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM), STATICGUIDOF(KSDATAFORMAT_SPECIFIER_WAVEFORMATEX) },
-        { { WAVE_FORMAT_EXTENSIBLE, 2, rate, rate * 4, 4, 16, sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX) },
-          16, KSAUDIO_SPEAKER_STEREO, STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM) }
+        { { WAVE_FORMAT_EXTENSIBLE, StereoChannels, rate, rate * StereoBlockAlignBytes, StereoBlockAlignBytes, PcmBitsPerSample, sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX) },
+          PcmBitsPerSample, KSAUDIO_SPEAKER_STEREO, STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM) }
     };
 }
 
-static KSDATAFORMAT_WAVEFORMATEXTENSIBLE VirtualFormats[] = { StereoFormat(48000), StereoFormat(44100) };
+static KSDATAFORMAT_WAVEFORMATEXTENSIBLE VirtualFormats[] = { StereoFormat(DefaultSampleRateHz), StereoFormat(AlternateSampleRateHz) };
 static MODE_AND_DEFAULT_FORMAT VirtualModes[] = {
     { STATIC_AUDIO_SIGNALPROCESSINGMODE_DEFAULT, &VirtualFormats[0].DataFormat },
     { STATIC_AUDIO_SIGNALPROCESSINGMODE_RAW, &VirtualFormats[0].DataFormat }
@@ -34,18 +41,19 @@ static PIN_DEVICE_FORMATS_AND_MODES VirtualPinFormats[] = {
 static KSDATARANGE_AUDIO VirtualRenderRange = {
     { sizeof(KSDATARANGE_AUDIO), KSDATARANGE_ATTRIBUTES, 0, 0, STATICGUIDOF(KSDATAFORMAT_TYPE_AUDIO),
       STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM), STATICGUIDOF(KSDATAFORMAT_SPECIFIER_WAVEFORMATEX) },
-    2, 16, 16, 44100, 48000
+    StereoChannels, PcmBitsPerSample, PcmBitsPerSample, AlternateSampleRateHz, DefaultSampleRateHz
 };
 static PKSDATARANGE VirtualRenderRanges[] = { reinterpret_cast<PKSDATARANGE>(&VirtualRenderRange), reinterpret_cast<PKSDATARANGE>(&PinDataRangeAttributeList) };
 
 // Render3 is the existing SysVAD two-pin layout with no offload or hardware loopback.
 static PCPIN_DESCRIPTOR VirtualWavePins[] = {
-    { 1, 1, 0, nullptr, { 0, nullptr, 0, nullptr, ARRAYSIZE(VirtualRenderRanges), VirtualRenderRanges,
+    { SystemRenderPinInstances, SystemRenderPinInstances, 0, nullptr, { 0, nullptr, 0, nullptr, ARRAYSIZE(VirtualRenderRanges), VirtualRenderRanges,
         KSPIN_DATAFLOW_IN, KSPIN_COMMUNICATION_SINK, &KSCATEGORY_AUDIO, nullptr, 0 } },
     { 0, 0, 0, nullptr, { 0, nullptr, 0, nullptr, ARRAYSIZE(SpeakerTopoPinDataRangePointersBridge), SpeakerTopoPinDataRangePointersBridge,
         KSPIN_DATAFLOW_OUT, KSPIN_COMMUNICATION_NONE, &KSCATEGORY_AUDIO, nullptr, 0 } }
 };
 static PCNODE_DESCRIPTOR VirtualWaveNodes[] = { { 0, nullptr, &KSNODETYPE_DAC, nullptr } };
+// The DAC accepts the system stream on node pin 1 and sends it to the bridge from node pin 0.
 static PCCONNECTION_DESCRIPTOR VirtualWaveConnections[] = {
     { PCFILTER_NODE, KSPIN_WAVE_RENDER3_SINK_SYSTEM, KSNODE_WAVE_DAC, 1 },
     { KSNODE_WAVE_DAC, 0, PCFILTER_NODE, KSPIN_WAVE_RENDER3_SOURCE }
@@ -64,7 +72,7 @@ static PHYSICALCONNECTIONTABLE VirtualPhysicalConnections[] = { { KSPIN_TOPO_WAV
 static ENDPOINT_MINIPAIR VirtualRender = {
     eSpeakerDevice, L"SqcVirtualTopology", nullptr, CreateMiniportTopologySYSVAD, &SpeakerTopoMiniportFilterDescriptor, 0, nullptr,
     L"SqcVirtualWave", nullptr, CreateMiniportWaveRTSYSVAD, &VirtualWaveDescriptor, 0, nullptr,
-    2, VirtualPinFormats, ARRAYSIZE(VirtualPinFormats), VirtualPhysicalConnections, ARRAYSIZE(VirtualPhysicalConnections),
+    StereoChannels, VirtualPinFormats, ARRAYSIZE(VirtualPinFormats), VirtualPhysicalConnections, ARRAYSIZE(VirtualPhysicalConnections),
     ENDPOINT_NO_FLAGS, nullptr, 0, nullptr
 };
 

@@ -63,6 +63,7 @@ try {
     $enginePath = Join-Path $staged 'EndpointsCommon\MiniportAudioEngineNode.cpp'
     $engine = [IO.File]::ReadAllText($enginePath)
     $sideband = '(?m)^    if \(IsSidebandDevice\(\) && m_pSidebandDevice->Is(?:Volume|Mute)Supported\(m_DeviceType\)\)\r?\n    \{\r?\n[\s\S]*?^    \}(?:\r?\n    else(?=\r?$))?'
+    # The pinned revision checks sideband support four times each for volume and mute (channel count, steps, get, and set).
     if ([regex]::Matches($engine, $sideband).Count -ne 8) { throw 'The upstream sideband volume and mute handlers did not match.' }
     $lineBreak = if ($engine.Contains("`r`n")) { "`r`n" } else { "`n" }
     # Match minwavert.h's sideband guards and leave software volume and mute available for the virtual endpoint.

@@ -22,6 +22,8 @@ namespace SmartQuietCinema.Tools.AudioTestBench
     public readonly record struct IntervalMeasurement(TimeInterval Interval, long StartFrame, long EndFrame, bool IsTruncated,
         double? InputRms, double? InputPeak, double? OutputRms, double? OutputPeak)
     {
+        private const double AmplitudeDecibelFactor = 20.0;
+
         /// <summary>
         /// Gets the output-minus-input RMS in decibels, or null when a finite ratio is unavailable.
         /// </summary>
@@ -40,6 +42,6 @@ namespace SmartQuietCinema.Tools.AudioTestBench
         /// <returns>A signed gain in decibels, or null if either level is zero or unavailable.</returns>
         private static double? DifferenceDb(double? input, double? output)
             => input is > 0 && output is > 0 && double.IsFinite(input.Value) && double.IsFinite(output.Value)
-                ? 20.0 * (Math.Log10(output.Value) - Math.Log10(input.Value)) : null;
+                ? AmplitudeDecibelFactor * (Math.Log10(output.Value) - Math.Log10(input.Value)) : null;
     }
 }

@@ -32,12 +32,14 @@ namespace SmartQuietCinema.Core.DSP
             // Reinitialize activity tracking when channel count changes.
             if (_channelEnergy.Length != frame.Length) _channelEnergy = new double[frame.Length];
 
+            const double MillisecondsPerSecond = 1000.0;
+
             // Cache time coefficients for the current sample rate.
             if (_cachedSampleRate != sampleRate)
             {
-                _attackCoefficient = Math.Exp(-1000.0 / (AttackMilliseconds * sampleRate));
+                _attackCoefficient = Math.Exp(-MillisecondsPerSecond / (AttackMilliseconds * sampleRate));
 
-                _releaseCoefficient = Math.Exp(-1000.0 / (ReleaseMilliseconds * sampleRate));
+                _releaseCoefficient = Math.Exp(-MillisecondsPerSecond / (ReleaseMilliseconds * sampleRate));
 
                 _cachedSampleRate = sampleRate;
             }

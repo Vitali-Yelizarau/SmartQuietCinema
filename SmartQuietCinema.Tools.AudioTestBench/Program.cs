@@ -14,7 +14,9 @@ namespace SmartQuietCinema.Tools.AudioTestBench
         /// <returns>Zero on success, one on a processing error, or two for incorrect usage.</returns>
         private static int Main(string[] args)
         {
-            if (args.Length < 2)
+            const int RequiredPathArguments = 2;
+            const int IntervalArgumentPairSize = 2;
+            if (args.Length < RequiredPathArguments)
             {
                 Console.Error.WriteLine("Usage: SmartQuietCinema.Tools.AudioTestBench <input.wav> <output.wav> [--interval \"name:start:end\"]...");
                 return 2;
@@ -23,7 +25,7 @@ namespace SmartQuietCinema.Tools.AudioTestBench
             try
             {
                 var intervals = new List<TimeInterval>();
-                for (int index = 2; index < args.Length; index += 2)
+                for (int index = RequiredPathArguments; index < args.Length; index += IntervalArgumentPairSize)
                 {
                     if (args[index] != "--interval" || index + 1 >= args.Length)
                         throw new FormatException($"Expected --interval \"name:start:end\", found '{args[index]}'.");

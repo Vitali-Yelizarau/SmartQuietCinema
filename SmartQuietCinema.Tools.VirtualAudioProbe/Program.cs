@@ -15,6 +15,9 @@ internal static class Program
     /// <returns>Zero for success, one for a failed validation, or two for incorrect usage.</returns>
     private static async Task<int> Main(string[] args)
     {
+        const int DefaultSourceRateHz = 48000;
+        const int AlternateSourceRateHz = 44100;
+
         if (!OperatingSystem.IsWindows())
         {
             Console.Error.WriteLine("This probe requires Windows.");
@@ -27,8 +30,8 @@ internal static class Program
             if (args is ["defaults"]) return ReadDefaultEndpoints();
             if (args.Length is 2 or 3 && args[0] == "probe" && !string.IsNullOrWhiteSpace(args[1]))
             {
-                int rate = 48000;
-                if (args.Length == 2 || int.TryParse(args[2], NumberStyles.None, CultureInfo.InvariantCulture, out rate) && rate is 44100 or 48000)
+                int rate = DefaultSourceRateHz;
+                if (args.Length == 2 || int.TryParse(args[2], NumberStyles.None, CultureInfo.InvariantCulture, out rate) && rate is AlternateSourceRateHz or DefaultSourceRateHz)
                     return await ProbeAsync(args[1], rate);
             }
             Console.Error.WriteLine("Usage: VirtualAudioProbe list | defaults | self-test | probe <endpoint-id> [44100|48000]");
@@ -102,13 +105,17 @@ internal static class Program
     /// <returns>The validation exit code.</returns>
     private static async Task<int> CollectAsync(MMDevice endpoint, int sourceRate)
     {
+        const int CaptureCapacitySeconds = 8;
+        const int CaptureLeadInMilliseconds = 250;
+        const int MarkerOverlapMilliseconds = 2500;
+
         var failures = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
         CaptureBuffer capture;
         WaveFormat format;
         await using (var recorder = new WasapiRecorderBuilder().WithDevice(endpoint).WithLoopbackCapture().WithSharedMode().WithEventSync().Build())
         {
             format = recorder.WaveFormat;
-            capture = new CaptureBuffer(format, maximumSeconds: 8);
+            capture = new CaptureBuffer(format, maximumSeconds: CaptureCapacitySeconds);
             await using var first = new WasapiPlayerBuilder().WithDevice(endpoint).WithSharedMode().WithEventSync().Build();
             await using var second = new WasapiPlayerBuilder().WithDevice(endpoint).WithSharedMode().WithEventSync().Build();
             recorder.RecordingStopped += (_, eventArgs) => { if (eventArgs.Exception is not null) failures.TrySetResult(eventArgs.Exception); };
@@ -123,11 +130,11 @@ internal static class Program
             Console.WriteLine($"Capture: {format.Encoding}, {format.SampleRate} Hz, {format.Channels} channels, {format.BitsPerSample} bits{subtype}");
 
             recorder.StartRecording();
-            if (await Task.WhenAny(Task.Delay(250), failures.Task) != failures.Task)
+            if (await Task.WhenAny(Task.Delay(CaptureLeadInMilliseconds), failures.Task) != failures.Task)
             {
                 first.Play();
                 second.Play();
-                await Task.WhenAny(Task.Delay(2500), failures.Task);
+                await Task.WhenAny(Task.Delay(MarkerOverlapMilliseconds), failures.Task);
             }
             first.Stop();
             second.Stop();

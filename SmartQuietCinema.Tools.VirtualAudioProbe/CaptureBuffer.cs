@@ -9,6 +9,13 @@ namespace SmartQuietCinema.Tools.VirtualAudioProbe;
 /// </summary>
 internal sealed class CaptureBuffer
 {
+    private const int BitsPerByte = 8;
+    private const int StereoChannels = 2;
+    private const int Pcm16BitsPerSample = 16;
+    private const int Pcm24BitsPerSample = 24;
+    private const int Pcm32BitsPerSample = 32;
+    private const int FloatBitsPerSample = 32;
+
     private readonly int _blockAlign;
     private readonly byte[] _bytes;
     private readonly WaveFormat _format;
@@ -31,16 +38,19 @@ internal sealed class CaptureBuffer
     /// <param name="maximumSeconds">Upper bound on stored audio, including startup time.</param>
     public CaptureBuffer(WaveFormat format, int maximumSeconds)
     {
+        const int MinimumSampleRateHz = 8000;
+        const int MaximumSampleRateHz = 192000;
+
         bool pcm = format.Encoding == WaveFormatEncoding.Pcm;
         _float = format.Encoding == WaveFormatEncoding.IeeeFloat;
         if (format is WaveFormatExtensible extensible)
         {
             pcm = extensible.SubFormat == AudioMediaSubtypes.MEDIASUBTYPE_PCM;
-            _float = extensible.SubFormat == AudioMediaSubtypes.MEDIASUBTYPE_IEEE_FLOAT && extensible.ValidBitsPerSample == 32;
+            _float = extensible.SubFormat == AudioMediaSubtypes.MEDIASUBTYPE_IEEE_FLOAT && extensible.ValidBitsPerSample == FloatBitsPerSample;
         }
-        if (format.Channels != 2 || format.SampleRate is < 8000 or > 192000 ||
-            format.BlockAlign != 2 * (format.BitsPerSample / 8) ||
-            !(pcm && format.BitsPerSample is 16 or 24 or 32 || _float && format.BitsPerSample == 32))
+        if (format.Channels != StereoChannels || format.SampleRate is < MinimumSampleRateHz or > MaximumSampleRateHz ||
+            format.BlockAlign != StereoChannels * (format.BitsPerSample / BitsPerByte) ||
+            !(pcm && format.BitsPerSample is Pcm16BitsPerSample or Pcm24BitsPerSample or Pcm32BitsPerSample || _float && format.BitsPerSample == FloatBitsPerSample))
             throw new NotSupportedException($"Unsupported capture format: {format}. Expected stereo PCM16/24/32 or IEEE float32.");
 
         _format = format;
@@ -95,17 +105,23 @@ internal sealed class CaptureBuffer
     /// <returns>Interleaved normalized stereo samples.</returns>
     public float[] Decode(out int invalidSamples)
     {
-        int width = _format.BitsPerSample / 8;
+        const int Pcm16BytesPerSample = 2;
+        const int Pcm24BytesPerSample = 3;
+        const float Pcm16Scale = 32768f;
+        const float Pcm32Scale = 2147483648f;
+
+        int width = _format.BitsPerSample / BitsPerByte;
         var samples = new float[_length / width];
         invalidSamples = 0;
         for (int i = 0; i < samples.Length; i++)
         {
             ReadOnlySpan<byte> source = _bytes.AsSpan(i * width, width);
+            // Shift packed PCM24 into a signed 32-bit value before applying the PCM32 full-scale divisor.
             float sample = width switch
             {
-                2 => BinaryPrimitives.ReadInt16LittleEndian(source) / 32768f,
-                3 => ((source[0] | (source[1] << 8) | (source[2] << 16)) << 8) / 2147483648f,
-                _ => _float ? BinaryPrimitives.ReadSingleLittleEndian(source) : BinaryPrimitives.ReadInt32LittleEndian(source) / 2147483648f
+                Pcm16BytesPerSample => BinaryPrimitives.ReadInt16LittleEndian(source) / Pcm16Scale,
+                Pcm24BytesPerSample => ((source[0] | (source[1] << 8) | (source[2] << 16)) << 8) / Pcm32Scale,
+                _ => _float ? BinaryPrimitives.ReadSingleLittleEndian(source) : BinaryPrimitives.ReadInt32LittleEndian(source) / Pcm32Scale
             };
             if (float.IsFinite(sample)) samples[i] = sample;
             else invalidSamples++;

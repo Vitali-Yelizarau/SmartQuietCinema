@@ -11,7 +11,8 @@ internal static class EndpointIdentity
 {
     private const string HardwareId = @"ROOT\SmartQuietCinemaVirtualAudio";
     private const uint StringList = 0x2012;
-    private static readonly DevicePropertyKey HardwareIdsKey = new() { FormatId = new("a45c254e-df1c-4efd-8020-67d146a850e0"), PropertyId = 3 };
+    private const int HardwareIdsPropertyId = 3;
+    private static readonly DevicePropertyKey HardwareIdsKey = new() { FormatId = new("a45c254e-df1c-4efd-8020-67d146a850e0"), PropertyId = HardwareIdsPropertyId };
 
     /// <summary>
     /// Matches the adapter's hardware ID rather than a user-editable friendly name. Missing identity fails closed.
@@ -20,21 +21,27 @@ internal static class EndpointIdentity
     /// <returns>Whether the active render endpoint belongs to the experimental adapter.</returns>
     public static bool IsExpected(MMDevice endpoint)
     {
+        const int ConfigRetSuccess = 0;
+        const int LocatePresentDevice = 0;
+        const int ReservedFlags = 0;
+        const int HardwareIdBufferBytes = 4096;
+        const int MaximumAncestorDepth = 16;
+
         if (endpoint.DataFlow != DataFlow.Render || endpoint.State != DeviceState.Active ||
             !endpoint.Properties.TryGetValue(PropertyKeys.PKEY_Device_InstanceId, out string? instanceId) ||
-            string.IsNullOrEmpty(instanceId) || LocateDevice(out uint node, instanceId, 0) != 0)
+            string.IsNullOrEmpty(instanceId) || LocateDevice(out uint node, instanceId, LocatePresentDevice) != ConfigRetSuccess)
             return false;
 
-        var buffer = new byte[4096];
-        for (int depth = 0; depth < 16; depth++)
+        var buffer = new byte[HardwareIdBufferBytes];
+        for (int depth = 0; depth < MaximumAncestorDepth; depth++)
         {
             uint size = (uint)buffer.Length;
-            if (GetDeviceProperty(node, in HardwareIdsKey, out uint type, buffer, ref size, 0) == 0 && type == StringList && size <= buffer.Length)
+            if (GetDeviceProperty(node, in HardwareIdsKey, out uint type, buffer, ref size, ReservedFlags) == ConfigRetSuccess && type == StringList && size <= buffer.Length)
             {
                 string[] ids = Encoding.Unicode.GetString(buffer, 0, (int)size).Split('\0', StringSplitOptions.RemoveEmptyEntries);
                 if (ids.Contains(HardwareId, StringComparer.OrdinalIgnoreCase)) return true;
             }
-            if (GetParent(out uint parent, node, 0) != 0) break;
+            if (GetParent(out uint parent, node, ReservedFlags) != ConfigRetSuccess) break;
 
             node = parent;
         }

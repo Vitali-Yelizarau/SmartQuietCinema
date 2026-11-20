@@ -23,6 +23,8 @@ namespace SmartQuietCinema.Tools.AudioTestBench
     /// </summary>
     public static class WaveFileProcessor
     {
+        private const int DefaultBufferFrames = 4096;
+
         /// <summary>
         /// Processes complete WAV frames with one instance of each DSP stage and writes an aligned comparison file.
         /// </summary>
@@ -34,7 +36,7 @@ namespace SmartQuietCinema.Tools.AudioTestBench
         /// <param name="outputPath">The new file path. Existing files, including the input, are never overwritten.</param>
         /// <param name="bufferFrames">The processing block size in frames; changing it must not change the result.</param>
         /// <returns>Format, frame count, and signal levels for the input and exported output.</returns>
-        public static WaveProcessingResult Process(string inputPath, string outputPath, int bufferFrames = 4096)
+        public static WaveProcessingResult Process(string inputPath, string outputPath, int bufferFrames = DefaultBufferFrames)
             => Process(inputPath, outputPath, [], bufferFrames).Wave;
 
         /// <summary>
@@ -46,7 +48,7 @@ namespace SmartQuietCinema.Tools.AudioTestBench
         /// <param name="bufferFrames">The number of frames to process per block.</param>
         /// <returns>Whole-file statistics and interval comparisons limited to non-padded frames.</returns>
         public static (WaveProcessingResult Wave, IReadOnlyList<IntervalMeasurement> Intervals) Process(
-            string inputPath, string outputPath, IReadOnlyList<TimeInterval> intervals, int bufferFrames = 4096)
+            string inputPath, string outputPath, IReadOnlyList<TimeInterval> intervals, int bufferFrames = DefaultBufferFrames)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(inputPath);
             ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
@@ -207,15 +209,20 @@ namespace SmartQuietCinema.Tools.AudioTestBench
         /// <returns>Whether the payload stores 32-bit IEEE float samples.</returns>
         private static bool IsFloat32(WaveFormat format)
         {
-            if (format.BitsPerSample != 32) return false;
+            const int FloatBitsPerSample = 32;
+            const int ExtensibleExtraBytes = 22;
+            const int SubFormatOffset = 6;
+            const int SubFormatBytes = 16;
+
+            if (format.BitsPerSample != FloatBitsPerSample) return false;
             if (format.Encoding == WaveFormatEncoding.IeeeFloat) return true;
             if (format.Encoding != WaveFormatEncoding.Extensible) return false;
 
             return format switch
             {
-                WaveFormatExtensible extensible => extensible.ValidBitsPerSample == 32 && extensible.SubFormat == AudioMediaSubtypes.MEDIASUBTYPE_IEEE_FLOAT,
-                WaveFormatExtraData extra when extra.ExtraData.Length >= 22 => BinaryPrimitives.ReadUInt16LittleEndian(extra.ExtraData) == 32
-                    && new Guid(extra.ExtraData.AsSpan(6, 16)) == AudioMediaSubtypes.MEDIASUBTYPE_IEEE_FLOAT,
+                WaveFormatExtensible extensible => extensible.ValidBitsPerSample == FloatBitsPerSample && extensible.SubFormat == AudioMediaSubtypes.MEDIASUBTYPE_IEEE_FLOAT,
+                WaveFormatExtraData extra when extra.ExtraData.Length >= ExtensibleExtraBytes => BinaryPrimitives.ReadUInt16LittleEndian(extra.ExtraData) == FloatBitsPerSample
+                    && new Guid(extra.ExtraData.AsSpan(SubFormatOffset, SubFormatBytes)) == AudioMediaSubtypes.MEDIASUBTYPE_IEEE_FLOAT,
                 _ => false
             };
         }

@@ -91,16 +91,17 @@ namespace SmartQuietCinema.Platform.Windows.Capture
                 // Log the audio format used by the selected output device.
                 var format = recorder.WaveFormat;
 
+                const int FloatBitsPerSample = 32;
                 // Verify that the capture format contains 32-bit IEEE Float samples.
                 bool isFloat32 =
-                    format.BitsPerSample == 32 &&
+                    format.BitsPerSample == FloatBitsPerSample &&
                     format.BlockAlign == format.Channels * sizeof(float) &&
                     (
                         format.Encoding == WaveFormatEncoding.IeeeFloat ||
                         (format is WaveFormatExtensible extensibleFormat &&
                          extensibleFormat.SubFormat ==
                              new Guid("00000003-0000-0010-8000-00aa00389b71") &&
-                         extensibleFormat.ValidBitsPerSample == 32)
+                         extensibleFormat.ValidBitsPerSample == FloatBitsPerSample)
                     );
 
                 // Create an adaptive processor for bidirectional dynamics control.
@@ -128,6 +129,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
                     $"{format.BitsPerSample} bits");
 
 
+                const int LevelLogIntervalSeconds = 1;
                 long lastLevelLogTimestamp = Stopwatch.GetTimestamp();
 
                 if (!isFloat32) Debug.WriteLine("[SmartQuietCinema] DSP test skipped: " + "the audio format is not supported.");
@@ -184,7 +186,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
 
 
                         // Limit diagnostic logging to approximately once per second.
-                        if (Stopwatch.GetElapsedTime(lastLevelLogTimestamp) < TimeSpan.FromSeconds(1)) return;
+                        if (Stopwatch.GetElapsedTime(lastLevelLogTimestamp) < TimeSpan.FromSeconds(LevelLogIntervalSeconds)) return;
 
                         lastLevelLogTimestamp = Stopwatch.GetTimestamp();
 
@@ -279,6 +281,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
 
         private sealed class AbComparisonCapture
         {
+            private const int StereoChannels = 2;
             private const float SilentChannelThreshold = 0.00001f;
 
             private readonly WaveFormat _format;
@@ -345,12 +348,12 @@ namespace SmartQuietCinema.Platform.Windows.Capture
             /// </summary>
             private bool ContainsOnlyStereoAudio()
             {
-                if (_format.Channels == 2) return true;
-                if (_format.Channels < 2) return false;
+                if (_format.Channels == StereoChannels) return true;
+                if (_format.Channels < StereoChannels) return false;
 
                 for (int i = 0; i < _original.Length; i += _format.Channels)
                 {
-                    for (int channel = 2; channel < _format.Channels; channel++)
+                    for (int channel = StereoChannels; channel < _format.Channels; channel++)
                     {
                         float sample = _original[i + channel];
 
@@ -370,7 +373,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
                 {
                     bool useStereo = ContainsOnlyStereoAudio();
 
-                    WaveFormat outputFormat = useStereo ? WaveFormat.CreateIeeeFloatWaveFormat(_format.SampleRate, 2) : _format;
+                    WaveFormat outputFormat = useStereo ? WaveFormat.CreateIeeeFloatWaveFormat(_format.SampleRate, StereoChannels) : _format;
 
                     string folder = WindowsSampleStorage.CreateCaptureDirectory(WindowsSampleStorage.GetDefaultRoot(), DateTime.Now);
 
@@ -380,7 +383,9 @@ namespace SmartQuietCinema.Platform.Windows.Capture
                     // Compensate for the lookahead latency in the A/B export.
                     float[] alignedProcessed = (float[])_processed.Clone();
 
-                    int latencyFrames = Math.Max(1, (int)Math.Ceiling(_format.SampleRate * LookaheadTransientController.LookaheadMilliseconds / 1000.0));
+                    const int MinimumLatencyFrames = 1;
+                    const double MillisecondsPerSecond = 1000.0;
+                    int latencyFrames = Math.Max(MinimumLatencyFrames, (int)Math.Ceiling(_format.SampleRate * LookaheadTransientController.LookaheadMilliseconds / MillisecondsPerSecond));
 
                     int latencySamples = checked(latencyFrames * _format.Channels);
 
@@ -425,7 +430,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
                 // Export the two active channels as stereo.
                 const int chunkFrames = 4096;
 
-                float[] stereoBuffer = new float[chunkFrames * 2];
+                float[] stereoBuffer = new float[chunkFrames * StereoChannels];
 
                 int totalFrames = samples.Length / _format.Channels;
 
@@ -437,14 +442,14 @@ namespace SmartQuietCinema.Platform.Windows.Capture
                     {
                         int sourceIndex = (offset + frame) * _format.Channels;
 
-                        int destinationIndex = frame * 2;
+                        int destinationIndex = frame * StereoChannels;
 
                         stereoBuffer[destinationIndex] = samples[sourceIndex];
 
                         stereoBuffer[destinationIndex + 1] = samples[sourceIndex + 1];
                     }
 
-                    writer.Write(MemoryMarshal.AsBytes(stereoBuffer.AsSpan(0, frames * 2)));
+                    writer.Write(MemoryMarshal.AsBytes(stereoBuffer.AsSpan(0, frames * StereoChannels)));
                 }
             }
         }

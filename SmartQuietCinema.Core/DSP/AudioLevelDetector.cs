@@ -107,9 +107,11 @@ namespace SmartQuietCinema.Core.DSP
         {
             if (_cachedSampleRate == sampleRate) return;
 
-            _attackCoefficient = Math.Exp(-1000.0 / (_attackMilliseconds * sampleRate));
+            const double MillisecondsPerSecond = 1000.0;
 
-            _releaseCoefficient = Math.Exp(-1000.0 / (_releaseMilliseconds * sampleRate));
+            _attackCoefficient = Math.Exp(-MillisecondsPerSecond / (_attackMilliseconds * sampleRate));
+
+            _releaseCoefficient = Math.Exp(-MillisecondsPerSecond / (_releaseMilliseconds * sampleRate));
 
             _cachedSampleRate = sampleRate;
         }

@@ -9,6 +9,8 @@ internal static class PcmMarkers
 {
     private const int SysVadLoopbackToneHz = 3000;
     internal static readonly int[] Frequencies = [688, 1104, 1424, 1936, SysVadLoopbackToneHz];
+    private const int StereoChannels = 2;
+    private const double MinimumProjectionAmplitude = 0.0002;
     private const double Amplitude = 0.08;
     private const int RequiredWindows = 4;
 
@@ -21,7 +23,7 @@ internal static class PcmMarkers
     /// <param name="sampleRate">The producer's declared frames per second.</param>
     /// <returns>The original unprocessed marker sample.</returns>
     public static float Sample(int marker, int channel, long frame, int sampleRate)
-        => (float)(Amplitude * Math.Sin(2 * Math.PI * Frequencies[marker * 2 + channel] * (frame % sampleRate) / sampleRate));
+        => (float)(Amplitude * Math.Sin(2 * Math.PI * Frequencies[marker * StereoChannels + channel] * (frame % sampleRate) / sampleRate));
 
     /// <summary>
     /// Uses phase-independent spectral projections to demand both producers in the same consecutive time windows,
@@ -32,8 +34,11 @@ internal static class PcmMarkers
     /// <returns>Peak, individual and joint window counts, plus the longest uninterrupted joint detection.</returns>
     public static Result Analyze(ReadOnlySpan<float> samples, int sampleRate)
     {
-        int windowFrames = sampleRate / 8;
-        int frames = samples.Length / 2;
+        const int WindowsPerSecond = 8;
+        const double StockToneRmsFraction = 0.10;
+
+        int windowFrames = sampleRate / WindowsPerSecond;
+        int frames = samples.Length / StereoChannels;
         int first = 0, second = 0, both = 0, streak = 0, longest = 0, stockTone = 0;
         double peak = 0;
         foreach (float sample in samples)
@@ -54,13 +59,14 @@ internal static class PcmMarkers
             }
         }
 
+        // Each of the five frequencies uses consecutive left and right slots; keep the fixed stack storage in sync with that layout.
         Span<double> levels = stackalloc double[10];
         for (int start = 0; start + windowFrames <= frames; start += windowFrames)
         {
             double leftEnergy = 0, rightEnergy = 0;
             for (int i = 0; i < windowFrames; i++)
             {
-                double left = samples[2 * (start + i)], right = samples[2 * (start + i) + 1];
+                double left = samples[StereoChannels * (start + i)], right = samples[StereoChannels * (start + i) + 1];
                 leftEnergy += left * left;
                 rightEnergy += right * right;
             }
@@ -70,19 +76,20 @@ internal static class PcmMarkers
                 double leftCos = 0, leftSin = 0, rightCos = 0, rightSin = 0;
                 for (int i = 0; i < windowFrames; i++)
                 {
-                    double left = samples[2 * (start + i)], right = samples[2 * (start + i) + 1];
+                    double left = samples[StereoChannels * (start + i)], right = samples[StereoChannels * (start + i) + 1];
                     leftCos += left * cosine[frequency, i];
                     leftSin += left * sine[frequency, i];
                     rightCos += right * cosine[frequency, i];
                     rightSin += right * sine[frequency, i];
                 }
-                levels[2 * frequency] = 2 * Math.Sqrt(leftCos * leftCos + leftSin * leftSin) / weightSum;
-                levels[2 * frequency + 1] = 2 * Math.Sqrt(rightCos * rightCos + rightSin * rightSin) / weightSum;
+                levels[StereoChannels * frequency] = 2 * Math.Sqrt(leftCos * leftCos + leftSin * leftSin) / weightSum;
+                levels[StereoChannels * frequency + 1] = 2 * Math.Sqrt(rightCos * rightCos + rightSin * rightSin) / weightSum;
             }
 
+            // Slots are left/right for source A's two markers, source B's two markers, then the stock SysVAD tone.
             bool foundFirst = Matches(levels[0], levels[1], leftRms) && Matches(levels[3], levels[2], rightRms);
             bool foundSecond = Matches(levels[4], levels[5], leftRms) && Matches(levels[7], levels[6], rightRms);
-            if (levels[8] >= Math.Max(0.0002, leftRms * 0.10) || levels[9] >= Math.Max(0.0002, rightRms * 0.10)) stockTone++;
+            if (levels[8] >= Math.Max(MinimumProjectionAmplitude, leftRms * StockToneRmsFraction) || levels[9] >= Math.Max(MinimumProjectionAmplitude, rightRms * StockToneRmsFraction)) stockTone++;
             if (foundFirst) first++;
             if (foundSecond) second++;
             if (foundFirst && foundSecond) both++;
@@ -94,21 +101,27 @@ internal static class PcmMarkers
 
     /// <summary>Rejects weak projections and channel leakage while allowing the engine to change stream gain.</summary>
     private static bool Matches(double intended, double opposite, double rms)
-        => intended >= Math.Max(0.0002, Math.Max(rms * 0.30, opposite * 3));
+    {
+        const double MinimumMarkerRmsFraction = 0.30;
+        const int MinimumChannelSeparation = 3;
+        return intended >= Math.Max(MinimumProjectionAmplitude, Math.Max(rms * MinimumMarkerRmsFraction, opposite * MinimumChannelSeparation));
+    }
 
     /// <summary>
     /// Stores marker evidence on the actual capture timeline. Joint windows prevent sequential signals from passing.
     /// </summary>
     internal readonly record struct Result(double Peak, int FirstWindows, int SecondWindows, int JointWindows, int LongestJointRun, int StockToneWindows)
     {
-        public bool IsSilent => Peak < 0.0001;
+        private const double SilencePeakFloor = 0.0001;
+
+        public bool IsSilent => Peak < SilencePeakFloor;
         public bool Passed => LongestJointRun >= RequiredWindows && StockToneWindows == 0;
     }
 
     /// <summary>Provides one continuous deterministic stereo stream for an independent WASAPI render client.</summary>
     /// <param name="marker">The marker pair to render.</param>
     /// <param name="sampleRate">The source rate used for this render client.</param>
-    internal sealed class Source(int marker, int sampleRate) : WaveProvider32(sampleRate, 2)
+    internal sealed class Source(int marker, int sampleRate) : WaveProvider32(sampleRate, StereoChannels)
     {
         private long _samplePosition;
 
@@ -121,7 +134,7 @@ internal static class PcmMarkers
         {
             for (int i = 0; i < buffer.Length; i++)
             {
-                buffer[i] = Sample(marker, (int)(_samplePosition % 2), _samplePosition / 2, WaveFormat.SampleRate);
+                buffer[i] = Sample(marker, (int)(_samplePosition % StereoChannels), _samplePosition / StereoChannels, WaveFormat.SampleRate);
                 _samplePosition++;
             }
             return buffer.Length;

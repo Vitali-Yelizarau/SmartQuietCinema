@@ -8,6 +8,7 @@ Overrides the current user's LocalAppData sample directory.
 [CmdletBinding()]
 param([ValidateNotNullOrEmpty()][string]$CaptureRoot)
 
+$requiredCaptureCount = 2
 $ErrorActionPreference = 'Stop'
 
 function Invoke-BenchCommand {
@@ -33,7 +34,7 @@ function Get-LatestCapture {
             [pscustomobject]@{ Directory = $directory; Timestamp = $timestamp }
         }
     }
-    return $valid | Sort-Object Timestamp -Descending | Select-Object -First 2
+    return $valid | Sort-Object Timestamp -Descending | Select-Object -First $requiredCaptureCount
 }
 
 function Get-CaptureWaveInfo {
@@ -42,20 +43,31 @@ function Get-CaptureWaveInfo {
     #>
     param([string]$Path)
 
+    $fourCcBytes = 4
+    $chunkHeaderBytes = 8
+    $minimumDs64Bytes = 28
+    $baseFormatBytes = 16
+    $formatWithExtensionLengthBytes = 18
+    $formatWithPartialExtensionLengthBytes = 17
+    $pcmFormatTag = 1
+    $ieeeFloatFormatTag = 3
+    $extensibleFormatTag = 65534
+
     $stream = [IO.File]::OpenRead($Path)
     $reader = [IO.BinaryReader]::new($stream, [Text.Encoding]::ASCII)
     try {
-        $container = [Text.Encoding]::ASCII.GetString($reader.ReadBytes(4))
+        $container = [Text.Encoding]::ASCII.GetString($reader.ReadBytes($fourCcBytes))
         $riffSize = [decimal]$reader.ReadUInt32()
-        if ($container -cnotin 'RIFF', 'RF64' -or [Text.Encoding]::ASCII.GetString($reader.ReadBytes(4)) -cne 'WAVE') {
+        if ($container -cnotin 'RIFF', 'RF64' -or [Text.Encoding]::ASCII.GetString($reader.ReadBytes($fourCcBytes)) -cne 'WAVE') {
             throw "Invalid WAV header: $Path"
         }
 
+        # RIFF chunks are word-aligned; skip their padding byte when the payload size is odd.
         $rf64DataSize = $null
         if ($container -ceq 'RF64') {
-            $chunk = [Text.Encoding]::ASCII.GetString($reader.ReadBytes(4))
+            $chunk = [Text.Encoding]::ASCII.GetString($reader.ReadBytes($fourCcBytes))
             $size = [long]$reader.ReadUInt32()
-            if ($chunk -cne 'ds64' -or $size -lt 28 -or $size -gt ($stream.Length - $stream.Position)) {
+            if ($chunk -cne 'ds64' -or $size -lt $minimumDs64Bytes -or $size -gt ($stream.Length - $stream.Position)) {
                 throw "Invalid RF64 size chunk: $Path"
             }
             $nextChunk = $stream.Position + $size + ($size % 2)
@@ -64,18 +76,18 @@ function Get-CaptureWaveInfo {
             $stream.Position = $nextChunk
         }
 
-        $riffEnd = $riffSize + 8
+        $riffEnd = $riffSize + $chunkHeaderBytes
         if ($riffEnd -gt $stream.Length) { throw "Truncated WAV container: $Path" }
         $format = $null
         $dataSize = $null
-        while ($stream.Position + 8 -le $riffEnd) {
-            $chunk = [Text.Encoding]::ASCII.GetString($reader.ReadBytes(4))
+        while ($stream.Position + $chunkHeaderBytes -le $riffEnd) {
+            $chunk = [Text.Encoding]::ASCII.GetString($reader.ReadBytes($fourCcBytes))
             $size = [long]$reader.ReadUInt32()
             if ($chunk -ceq 'data' -and $null -ne $rf64DataSize -and $size -eq [uint32]::MaxValue) { $size = $rf64DataSize }
             if ($size -gt ($riffEnd - $stream.Position)) { throw "Truncated WAV chunk '$chunk': $Path" }
             $nextChunk = $stream.Position + $size + ($size % 2)
             if ($chunk -ceq 'fmt ' -and $null -eq $format) {
-                if ($size -lt 16 -or $size -eq 17 -or $size -gt (18 + [uint16]::MaxValue)) { throw "Invalid WAV format chunk: $Path" }
+                if ($size -lt $baseFormatBytes -or $size -eq $formatWithPartialExtensionLengthBytes -or $size -gt ($formatWithExtensionLengthBytes + [uint16]::MaxValue)) { throw "Invalid WAV format chunk: $Path" }
                 $format = $reader.ReadBytes([int]$size)
             } elseif ($chunk -ceq 'data' -and $null -eq $dataSize) {
                 $dataSize = [long]$size
@@ -85,6 +97,7 @@ function Get-CaptureWaveInfo {
         }
         if ($null -eq $format -or $null -eq $dataSize) { throw "Missing WAV format or data chunk: $Path" }
 
+        # WAVEFORMATEX byte offsets are fixed by the on-disk layout; changing them reads the wrong fields.
         $tag = [BitConverter]::ToUInt16($format, 0)
         $channels = [BitConverter]::ToUInt16($format, 2)
         $rate = [BitConverter]::ToInt32($format, 4)
@@ -95,10 +108,10 @@ function Get-CaptureWaveInfo {
         }
 
         # Preserve extensible format data while treating an omitted and an empty extension as equivalent.
-        $extra = if ($format.Length -ge 18) { [BitConverter]::ToUInt16($format, 16) } else { 0 }
-        $formatSize = if ($extra -gt 0) { 18 + $extra } else { 16 }
+        $extra = if ($format.Length -ge $formatWithExtensionLengthBytes) { [BitConverter]::ToUInt16($format, $baseFormatBytes) } else { 0 }
+        $formatSize = if ($extra -gt 0) { $formatWithExtensionLengthBytes + $extra } else { $baseFormatBytes }
         if ($formatSize -gt $format.Length) { throw "Truncated WAV format extension: $Path" }
-        $encoding = switch ($tag) { 1 { 'Pcm' } 3 { 'IeeeFloat' } 65534 { 'Extensible' } default { $tag } }
+        $encoding = switch ($tag) { $pcmFormatTag { 'Pcm' } $ieeeFloatFormatTag { 'IeeeFloat' } $extensibleFormatTag { 'Extensible' } default { $tag } }
         $frames = [long]($dataSize / $blockAlign)
         return [pscustomobject]@{
             Signature = [Convert]::ToBase64String($format, 0, $formatSize)
@@ -120,6 +133,10 @@ function Publish-NumberedOutput {
     #>
     param([string]$TemporaryWave, [string]$Directory)
 
+    $win32ErrorMask = 0xffff
+    $errorFileExists = 80
+    $errorAlreadyExists = 183
+
     for ([long]$number = 1; ; $number++) {
         $destination = Join-Path $Directory ('ProcessedOutput_{0}.wav' -f $number)
         try {
@@ -129,7 +146,7 @@ function Publish-NumberedOutput {
         } catch {
             $cause = $_.Exception.GetBaseException()
             # Let the atomic move decide whether the name is free, including collisions with concurrent runs.
-            if (($cause -is [IO.IOException] -and ($cause.HResult -band 0xffff) -in 80, 183) -or
+            if (($cause -is [IO.IOException] -and ($cause.HResult -band $win32ErrorMask) -in $errorFileExists, $errorAlreadyExists) -or
                 ([IO.Directory]::Exists($destination) -and $cause -is [UnauthorizedAccessException])) { continue }
             throw
         }
@@ -192,7 +209,7 @@ try {
     }
     if (-not (Test-Path -LiteralPath $CaptureRoot -PathType Container)) { throw "Capture root is missing: $CaptureRoot" }
     $captures = @(Get-LatestCapture $CaptureRoot)
-    if ($captures.Count -ne 2) { throw "Expected two valid timestamp capture directories under '$CaptureRoot'; found $($captures.Count)." }
+    if ($captures.Count -ne $requiredCaptureCount) { throw "Expected two valid timestamp capture directories under '$CaptureRoot'; found $($captures.Count)." }
 
     $project = Join-Path $PSScriptRoot 'SmartQuietCinema.Tools.AudioTestBench.csproj'
     $build = @(Invoke-BenchCommand build $project --configuration Debug --no-restore --nologo --disable-build-servers)

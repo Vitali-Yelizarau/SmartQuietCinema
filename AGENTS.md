@@ -91,6 +91,10 @@ This policy is mandatory for all future SmartQuietCinema development and testing
 - Avoid blocking operations, file I/O, and unnecessary memory allocations in audio callbacks.
 - Windows automation scripts must support Windows PowerShell 5.1 unless the project owner explicitly authorizes a newer minimum version.
 
+## Clean Code
+
+- Avoid unexplained magic numbers in application-owned code. Prefer meaningful named constants at the narrowest appropriate scope, preserving original numeric types and expression semantics. When a numeric literal is intentionally retained and its meaning is non-obvious, document its purpose, units, and consequences of changing it. Do not mechanically replace self-evident literals or independent test data.
+
 ## Compact C# Formatting
 
 - Prefer concise, clean, readable C#. Prioritize readability, consistency, and compactness over excessive vertical formatting.

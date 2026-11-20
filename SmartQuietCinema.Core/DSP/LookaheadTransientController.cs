@@ -36,17 +36,24 @@ namespace SmartQuietCinema.Core.DSP
         private const double ReferenceAttackMilliseconds = 80.0;
         private const double ReferenceReleaseMilliseconds = 300.0;
 
+        private const double MillisecondsPerSecond = 1000.0;
+        private const double DecibelBase = 10.0;
+        private const double AmplitudeDecibelFactor = 20.0;
+
+        private const double QuietLevelAttackMilliseconds = 3.0;
+        private const double QuietLevelReleaseMilliseconds = 20.0;
+        private const double MaximumQuietBoostDb = 3.0;
         private const double QuietPeakGuard = 0.063; // Allow some crest factor above the curve's -30 dBFS quiet boundary.
         private const double QuietNoiseFloorDb = -65.0;
         private const double QuietNoiseFadeEndDb = -55.0;
         private const double QuietPresenceReleaseMilliseconds = 3.0;
         private const double QuietGainRiseMilliseconds = 25.0;
         private const double PeakCeiling = 0.95;
-        private static readonly double QuietPresenceFloor = Math.Pow(10.0, QuietNoiseFloorDb / 20.0);
-        private static readonly double MaximumQuietBoost = Math.Pow(10.0, 3.0 / 20.0) - 1.0;
+        private static readonly double QuietPresenceFloor = Math.Pow(DecibelBase, QuietNoiseFloorDb / AmplitudeDecibelFactor);
+        private static readonly double MaximumQuietBoost = Math.Pow(DecibelBase, MaximumQuietBoostDb / AmplitudeDecibelFactor) - 1.0;
 
         private float[] _delayBuffer = Array.Empty<float>();
-        private readonly AudioLevelDetector _quietLevel = new(3.0, 20.0);
+        private readonly AudioLevelDetector _quietLevel = new(QuietLevelAttackMilliseconds, QuietLevelReleaseMilliseconds);
         private readonly AdaptiveGainCurve _quietGainCurve = new();
         private (long Frame, double Boost)[] _quietLimits = [];
         private int _quietLimitHead;
@@ -85,7 +92,7 @@ namespace SmartQuietCinema.Core.DSP
         /// <summary>
         /// Gets the current transient attenuation in decibels.
         /// </summary>
-        public double CurrentReductionDb => 20.0 * Math.Log10(_currentGain);
+        public double CurrentReductionDb => AmplitudeDecibelFactor * Math.Log10(_currentGain);
 
         /// <summary>
         /// Replaces interleaved input samples with delayed, transient-controlled output.
@@ -187,7 +194,7 @@ namespace SmartQuietCinema.Core.DSP
                 }
 
                 double targetGainDb = -MaximumReductionDb * normalizedTransient;
-                double targetGain = Math.Pow(10.0, targetGainDb / 20.0);
+                double targetGain = Math.Pow(DecibelBase, targetGainDb / AmplitudeDecibelFactor);
 
                 if (_holdFramesRemaining > 0)
                 {
@@ -252,11 +259,11 @@ namespace SmartQuietCinema.Core.DSP
                 _recentOriginalPeak <= QuietPresenceFloor || level <= QuietPresenceFloor)
                 return 0.0;
 
-            double levelDb = 20.0 * Math.Log10(level);
+            double levelDb = AmplitudeDecibelFactor * Math.Log10(level);
             double quietGainDb = _quietGainCurve.CalculateTargetGainDb(levelDb);
             if (quietGainDb <= 0.0 || levelDb <= QuietNoiseFloorDb) return 0.0;
 
-            double referenceGain = Math.Pow(10.0, quietGainDb / 20.0);
+            double referenceGain = Math.Pow(DecibelBase, quietGainDb / AmplitudeDecibelFactor);
             double noiseWeight = Math.Min(1.0, (levelDb - QuietNoiseFloorDb) / (QuietNoiseFadeEndDb - QuietNoiseFloorDb));
             double allowedBoost = Math.Min(referenceGain - 1.0, MaximumQuietBoost) * noiseWeight;
             if (originalPeak == 0.0 || processedPeak == 0.0) return allowedBoost;
@@ -341,10 +348,12 @@ namespace SmartQuietCinema.Core.DSP
             _channels = channels;
             _sampleRate = sampleRate;
 
-            LatencyFrames = Math.Max(1, (int)Math.Ceiling(sampleRate * LookaheadMilliseconds / 1000.0));
-            _holdFrames = (int)Math.Ceiling(sampleRate * HoldMilliseconds / 1000.0);
+            const int MinimumLatencyFrames = 1;
+            LatencyFrames = Math.Max(MinimumLatencyFrames, (int)Math.Ceiling(sampleRate * LookaheadMilliseconds / MillisecondsPerSecond));
+            _holdFrames = (int)Math.Ceiling(sampleRate * HoldMilliseconds / MillisecondsPerSecond);
             _quietPresenceRelease = CalculateCoefficient(QuietPresenceReleaseMilliseconds, sampleRate);
-            _quietRiseStep = MaximumQuietBoost / Math.Max(1.0, Math.Ceiling(sampleRate * QuietGainRiseMilliseconds / 1000.0));
+            const double MinimumQuietRiseFrames = 1.0;
+            _quietRiseStep = MaximumQuietBoost / Math.Max(MinimumQuietRiseFrames, Math.Ceiling(sampleRate * QuietGainRiseMilliseconds / MillisecondsPerSecond));
             _quietFallStep = MaximumQuietBoost / LatencyFrames;
 
             _delayBuffer = new float[checked(LatencyFrames * channels)];
@@ -364,7 +373,7 @@ namespace SmartQuietCinema.Core.DSP
 
         private static double CalculateCoefficient(double milliseconds, int sampleRate)
         {
-            return Math.Exp(-1000.0 / (milliseconds * sampleRate));
+            return Math.Exp(-MillisecondsPerSecond / (milliseconds * sampleRate));
         }
     }
 }

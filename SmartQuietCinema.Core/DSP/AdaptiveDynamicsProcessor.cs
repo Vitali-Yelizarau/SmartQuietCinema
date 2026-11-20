@@ -69,10 +69,13 @@ namespace SmartQuietCinema.Core.DSP
 
             if (samples.Length % channels != 0) throw new ArgumentException("The buffer length must be divisible by the channel count.", nameof(samples));
 
-            // Calculate smoothing coefficients once per buffer.
-            double attackCoefficient = Math.Exp(-1000.0 / (GainReductionAttackMs * sampleRate));
+            const double MillisecondsPerSecond = 1000.0;
+            const double DecibelBase = 10.0;
 
-            double releaseCoefficient = Math.Exp(-1000.0 / (GainRecoveryReleaseMs * sampleRate));
+            // Calculate smoothing coefficients once per buffer.
+            double attackCoefficient = Math.Exp(-MillisecondsPerSecond / (GainReductionAttackMs * sampleRate));
+
+            double releaseCoefficient = Math.Exp(-MillisecondsPerSecond / (GainRecoveryReleaseMs * sampleRate));
 
             // Process complete audio frames to preserve
             // channel synchronization.
@@ -89,7 +92,7 @@ namespace SmartQuietCinema.Core.DSP
                 // Calculate the desired gain adjustment.
                 double targetGainDb = _gainCurve.CalculateTargetGainDb(levelDb);
 
-                double targetLinearGain = Math.Pow(10.0, targetGainDb / DecibelFactor);
+                double targetLinearGain = Math.Pow(DecibelBase, targetGainDb / DecibelFactor);
 
                 // Reduce gain quickly, but recover more slowly.
                 double coefficient = targetLinearGain < _currentLinearGain ? attackCoefficient : releaseCoefficient;
