@@ -1,0 +1,620 @@
+--- a/audio/sysvad/adapter.cpp
++++ b/audio/sysvad/adapter.cpp
+@@ -710,7 +710,8 @@
+     _In_ PDEVICE_OBJECT     _pDeviceObject,{ws:s}
+     _In_ PIRP               _pIrp,{ws:s}
+     _In_ PADAPTERCOMMON     _pAdapterCommon,
+-    _In_ PENDPOINT_MINIPAIR _pAeMiniports
++    _In_ PENDPOINT_MINIPAIR _pAeMiniports,
++    _In_ PRESOURCELIST ResourceList
+     )
+ {
+     NTSTATUS                    ntStatus                = STATUS_SUCCESS;
+@@ -731,7 +732,7 @@
+         NULL,
+         &unknownTopology,
+         &unknownWave,
+-        NULL, NULL);
++        NULL, NULL, ResourceList);
+{ws:s}
+     if (unknownWave) // IID_IPortClsEtwHelper and IID_IPortClsRuntimePower interfaces are only exposed on the WaveRT port.
+     {
+@@ -791,7 +792,8 @@
+ InstallAllRenderFilters(
+     _In_ PDEVICE_OBJECT _pDeviceObject,{ws:s}
+     _In_ PIRP           _pIrp,{ws:s}
+-    _In_ PADAPTERCOMMON _pAdapterCommon
++    _In_ PADAPTERCOMMON _pAdapterCommon,
++    _In_ PRESOURCELIST  ResourceList
+     )
+ {
+     NTSTATUS            ntStatus;
+@@ -801,7 +803,7 @@
+{ws:s}
+     for(ULONG i = 0; i < g_cRenderEndpoints; ++i, ++ppAeMiniports)
+     {
+-        ntStatus = InstallEndpointRenderFilters(_pDeviceObject, _pIrp, _pAdapterCommon, *ppAeMiniports);
++        ntStatus = InstallEndpointRenderFilters(_pDeviceObject, _pIrp, _pAdapterCommon, *ppAeMiniports, ResourceList);
+         IF_FAILED_JUMP(ntStatus, Exit);
+     }
+{ws:sssss}
+@@ -930,13 +932,12 @@
+   NT status code.
+{ws:s}
+ --*/
+-    UNREFERENCED_PARAMETER(ResourceList);
+-
+     PAGED_CODE();
+{ws:s}
+     ASSERT(DeviceObject);
+     ASSERT(Irp);
+-    ASSERT(ResourceList);
++    // Use the start-time resource list supplied by PortCls, including a list with zero entries.
++    if (ResourceList == nullptr) return STATUS_INVALID_PARAMETER;
+{ws:s}
+     NTSTATUS                    ntStatus        = STATUS_SUCCESS;
+{ws:s}
+@@ -971,7 +972,7 @@
+     //
+     // Install wave+topology filters for render devices
+     //
+-    ntStatus = InstallAllRenderFilters(DeviceObject, Irp, pAdapterCommon);
++    ntStatus = InstallAllRenderFilters(DeviceObject, Irp, pAdapterCommon, ResourceList);
+     IF_FAILED_JUMP(ntStatus, Exit);
+{ws:s}
+ #ifdef SYSVAD_BTH_BYPASS
+--- a/audio/sysvad/common.cpp
++++ b/audio/sysvad/common.cpp
+@@ -214,7 +214,7 @@
+             _In_reads_opt_(cPropertyCount) const SYSVAD_DEVPROPERTY   * pProperties,
+             _In_opt_        PVOID                                       DeviceContext,
+             _In_            PENDPOINT_MINIPAIR                          MiniportPair,
+-            _In_opt_        PRESOURCELIST                               ResourceList,
++            _In_            PRESOURCELIST                               ResourceList,
+             _In_            REFGUID                                     PortInterfaceId,
+             _Out_opt_       PUNKNOWN                                  * OutPortInterface,
+             _Out_opt_       PUNKNOWN                                  * OutPortUnknown,
+@@ -250,7 +250,8 @@
+             _Out_opt_   PUNKNOWN *          UnknownTopology,
+             _Out_opt_   PUNKNOWN *          UnknownWave,
+             _Out_opt_   PUNKNOWN *          UnknownMiniportTopology,
+-            _Out_opt_   PUNKNOWN *          UnknownMiniportWave
++            _Out_opt_   PUNKNOWN *          UnknownMiniportWave,
++            _In_opt_    PRESOURCELIST       ResourceList
+         );
+{ws:sssssssss}
+         STDMETHODIMP_(NTSTATUS) RemoveEndpointFilters
+@@ -1731,7 +1732,7 @@
+     _In_reads_opt_(cPropertyCount) const SYSVAD_DEVPROPERTY * pProperties,
+     _In_opt_        PVOID                                   DeviceContext,
+     _In_            PENDPOINT_MINIPAIR                      MiniportPair,
+-    _In_opt_        PRESOURCELIST                           ResourceList,
++    _In_            PRESOURCELIST                           ResourceList,
+     _In_            REFGUID                                 PortInterfaceId,
+     _Out_opt_       PUNKNOWN                              * OutPortInterface,
+     _Out_opt_       PUNKNOWN                              * OutPortUnknown,
+@@ -1794,6 +1795,8 @@
+     UNICODE_STRING              symbolicLink    = { 0 };
+{ws:s}
+     adapterCommon = PADAPTERCOMMON(this);
++
++    if (ResourceList == nullptr) return STATUS_INVALID_PARAMETER;
+{ws:s}
+     ntStatus = CreateAudioInterfaceWithProperties(Name, TemplateName, cPropertyCount, pProperties, &symbolicLink);
+     if (NT_SUCCESS(ntStatus))
+@@ -1839,12 +1842,6 @@
+     //
+     if (NT_SUCCESS(ntStatus))
+     {
+-#pragma warning(push)
+-        // IPort::Init's annotation on ResourceList requires it to be non-NULL.  However,
+-        // for dynamic devices, we may no longer have the resource list and this should
+-        // still succeed.
+-        //
+-#pragma warning(disable:6387)
+         ntStatus ={ws:s}
+             port->Init
+             ({ws:s}
+@@ -1854,7 +1851,6 @@
+                 adapterCommon,
+                 ResourceList{ws:s}
+             );
+-#pragma warning (pop)
+{ws:s}
+         if (NT_SUCCESS(ntStatus))
+         {
+@@ -2498,7 +2494,8 @@
+     _Out_opt_   PUNKNOWN *          UnknownTopology,
+     _Out_opt_   PUNKNOWN *          UnknownWave,
+     _Out_opt_   PUNKNOWN *          UnknownMiniportTopology,
+-    _Out_opt_   PUNKNOWN *          UnknownMiniportWave
++    _Out_opt_   PUNKNOWN *          UnknownMiniportWave,
++    _In_opt_    PRESOURCELIST       ResourceList
+ )
+ {
+     PAGED_CODE();
+@@ -2532,6 +2529,8 @@
+     {
+         *UnknownMiniportWave = NULL;
+     }
++
++    if (ResourceList == nullptr) return STATUS_INVALID_PARAMETER;
+{ws:s}
+     ntStatus = GetCachedSubdevice(MiniportPair->TopoName, &unknownTopology, &unknownMiniTopo);
+     if (!NT_SUCCESS(ntStatus) || NULL == unknownTopology || NULL == unknownMiniTopo)
+@@ -2550,7 +2549,7 @@
+                                     MiniportPair->TopoInterfaceProperties,
+                                     DeviceContext,
+                                     MiniportPair,
+-                                    NULL,
++                                    ResourceList,
+                                     IID_IPortTopology,
+                                     NULL,
+                                     &unknownTopology,
+@@ -2561,6 +2560,8 @@
+             ntStatus = CacheSubdevice(MiniportPair->TopoName, unknownTopology, unknownMiniTopo);
+         }
+     }
++
++    IF_FAILED_JUMP(ntStatus, Exit);
+{ws:s}
+     ntStatus = GetCachedSubdevice(MiniportPair->WaveName, &unknownWave, &unknownMiniWave);
+     if (!NT_SUCCESS(ntStatus) || NULL == unknownWave || NULL == unknownMiniWave)
+@@ -2579,7 +2580,7 @@
+                                     MiniportPair->WaveInterfaceProperties,
+                                     DeviceContext,
+                                     MiniportPair,
+-                                    NULL,
++                                    ResourceList,
+                                     IID_IPortWaveRT,
+                                     NULL,{ws:s}
+                                     &unknownWave,
+@@ -2592,7 +2593,7 @@
+         }
+     }
+{ws:s}
+-    if (unknownTopology && unknownWave)
++    if (NT_SUCCESS(ntStatus) && unknownTopology && unknownWave)
+     {
+         //
+         // register wave <=> topology connections
+@@ -2606,6 +2607,7 @@
+             MiniportPair->PhysicalConnectionCount);
+     }
+{ws:s}
++Exit:
+     if (NT_SUCCESS(ntStatus))
+     {
+         //
+--- a/audio/sysvad/common.h
++++ b/audio/sysvad/common.h
+@@ -589,7 +589,7 @@
+         _In_reads_opt_(cPropertyCount) const SYSVAD_DEVPROPERTY   * pProperties,
+         _In_opt_        PVOID                                       DeviceContext,
+         _In_            PENDPOINT_MINIPAIR                          MiniportPair,
+-        _In_opt_        PRESOURCELIST                               ResourceList,
++        _In_            PRESOURCELIST                               ResourceList,
+         _In_            REFGUID                                     PortInterfaceId,
+         _Out_opt_       PUNKNOWN                                  * OutPortInterface,
+         _Out_opt_       PUNKNOWN                                  * OutPortUnknown,
+@@ -629,7 +629,8 @@
+         _Out_opt_   PUNKNOWN *          UnknownTopology,
+         _Out_opt_   PUNKNOWN *          UnknownWave,
+         _Out_opt_   PUNKNOWN *          UnknownMiniportTopology,
+-        _Out_opt_   PUNKNOWN *          UnknownMiniportWave
++        _Out_opt_   PUNKNOWN *          UnknownMiniportWave,
++        _In_opt_    PRESOURCELIST       ResourceList = nullptr
+     );
+{ws:s}
+     STDMETHOD_(NTSTATUS,        RemoveEndpointFilters)
+--- a/audio/sysvad/EndpointsCommon/AudioModuleHelper.cpp
++++ b/audio/sysvad/EndpointsCommon/AudioModuleHelper.cpp
+@@ -73,6 +73,11 @@
+         // caller wants to know the size of the buffer.
+         *BufferCb = cbFullProperty;
+         ntStatus = STATUS_BUFFER_OVERFLOW;
++    }
++    else if (Buffer == nullptr)
++    {
++        ntStatus = *BufferCb < sizeof(ULONG) ? STATUS_BUFFER_TOO_SMALL : STATUS_INVALID_PARAMETER;
++        *BufferCb = 0;
+     }
+     else if (*BufferCb >= (sizeof(KSPROPERTY_DESCRIPTION)))
+     {
+@@ -310,6 +315,11 @@
+             *OutBufferCb = 0;
+             return STATUS_BUFFER_TOO_SMALL;
+         }
++        if (OutBuffer == nullptr)
++        {
++            *OutBufferCb = 0;
++            return STATUS_INVALID_PARAMETER;
++        }
+         else
+         {
+             RtlCopyMemory(OutBuffer, CurrentValue, ParameterInfo->Size);
+--- a/audio/sysvad/EndpointsCommon/minwavertstream.cpp
++++ b/audio/sysvad/EndpointsCommon/minwavertstream.cpp
+@@ -35,6 +35,22 @@
+ --*/
+ {
+     PAGED_CODE();
++
++    // Drain the timer before releasing anything the DISPATCH_LEVEL callback can reach.
++    if (m_pNotificationTimer)
++    {
++        ExDeleteTimer(m_pNotificationTimer, TRUE, TRUE, nullptr);
++        m_pNotificationTimer = nullptr;
++    }
++
++    KeFlushQueuedDpcs();
++    while (!IsListEmpty(&m_NotificationList))
++    {
++        auto* link = RemoveHeadList(&m_NotificationList);
++        auto* entry = CONTAINING_RECORD(link, NotificationListEntry, ListEntry);
++        ExFreePoolWithTag(entry, MINWAVERTSTREAM_POOLTAG);
++    }
++
+     if (NULL != m_pMiniport)
+     {
+         if (m_pAudioModules)
+@@ -89,21 +105,6 @@
+         ExFreePoolWithTag( m_pWfExt, MINWAVERTSTREAM_POOLTAG );
+         m_pWfExt = NULL;
+     }
+-    if (m_pNotificationTimer)
+-    {
+-        ExDeleteTimer
+-        (
+-            m_pNotificationTimer,{ws:s}
+-            TRUE, // Cancel the timer if it is currently set.
+-            TRUE, // Wait for the timer to finish expiring and for any callback to a ExTimerCallback routine to finish.
+-            NULL
+-         );
+-    }
+-
+-    // Since we just cancelled the notification timer, wait for all queued{ws:s}
+-    // DPCs to complete before we free the notification DPC.
+-    //
+-    KeFlushQueuedDpcs();
+{ws:s}
+ #ifdef SYSVAD_BTH_BYPASS
+     ASSERT(m_SidebandOpen == FALSE);
+@@ -537,20 +538,23 @@
+ {
+     PAGED_CODE();
+{ws:s}
+-    ULONG ulBufferDurationMs = 0;
+-
+     if ( (0 == RequestedSize_) || (RequestedSize_ < m_pWfExt->Format.nBlockAlign) )
+     {{ws:s}
+         return STATUS_UNSUCCESSFUL;{ws:s}
+     }
+{ws:sssss}
+-    if ((NotificationCount_ == 0) || (RequestedSize_ % NotificationCount_ != 0))
++    RequestedSize_ -= RequestedSize_ % m_pWfExt->Format.nBlockAlign;
++    if (NotificationCount_ == 0 || RequestedSize_ % NotificationCount_ != 0 || m_ulDmaMovementRate == 0)
+     {
+         return STATUS_INVALID_PARAMETER;
+     }
+{ws:s}
+-    RequestedSize_ -= RequestedSize_ % (m_pWfExt->Format.nBlockAlign);
+-{ws:ssss}
++    constexpr ULONG MillisecondsPerSecond = 1000;
++    const ULONG intervalMs = static_cast<ULONG>((static_cast<ULONGLONG>(RequestedSize_) * MillisecondsPerSecond) /
++                                                m_ulDmaMovementRate / NotificationCount_);
++    // The emulated notification clock only signals on whole-millisecond boundaries.
++    if (intervalMs == 0) return STATUS_INVALID_PARAMETER;
++
+     if (!m_bCapture && !g_DoNotCreateDataFiles)
+     {
+         NTSTATUS ntStatus;
+@@ -590,11 +594,17 @@
+     //
+     //  A WaveRT miniport driver should not require software access to the audio buffer itself."
+     //{ws:sss}
+-    m_pDmaBuffer = (BYTE*)m_pPortStream->MapAllocatedPages(pBufferMdl, MmCached);
++    auto* mappedBuffer = static_cast<BYTE*>(m_pPortStream->MapAllocatedPages(pBufferMdl, MmCached));
++    if (mappedBuffer == nullptr)
++    {
++        m_pPortStream->FreePagesFromMdl(pBufferMdl);
++        return STATUS_INSUFFICIENT_RESOURCES;
++    }
++
++    m_pDmaBuffer = mappedBuffer;
+     m_ulNotificationsPerBuffer = NotificationCount_;
+     m_ulDmaBufferSize = RequestedSize_;
+-    ulBufferDurationMs = (RequestedSize_ * 1000) / m_ulDmaMovementRate;
+-    m_ulNotificationIntervalMs = ulBufferDurationMs / NotificationCount_;
++    m_ulNotificationIntervalMs = intervalMs;
+{ws:s}
+     *AudioBufferMdl_ = pBufferMdl;
+     *ActualSize_ = RequestedSize_;
+@@ -612,99 +622,67 @@
+     _In_        ULONG   Size_
+ )
+ {
+-    UNREFERENCED_PARAMETER(Size_);
+-
+     PAGED_CODE();
+-
+-    if (Mdl_ != NULL)
+-    {
+-        if (m_pDmaBuffer != NULL)
++    FreeAudioBuffer(Mdl_, Size_);
++}
++
++//=============================================================================
++#pragma code_seg()
++NTSTATUS CMiniportWaveRTStream::RegisterNotificationEvent
++(
++    _In_ PKEVENT NotificationEvent_
++)
++{
++    NT_ASSERT(KeGetCurrentIrql() == PASSIVE_LEVEL);
++
++    if (NotificationEvent_ == nullptr) return STATUS_INVALID_PARAMETER;
++    auto* entry = static_cast<NotificationListEntry*>(ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(NotificationListEntry), MINWAVERTSTREAM_POOLTAG));
++    if (entry == nullptr) return STATUS_INSUFFICIENT_RESOURCES;
++    entry->NotificationEvent = NotificationEvent_;
++
++    // Share the callback's lock so duplicate checks and insertion observe the same list.
++    KIRQL oldIrql;
++    KeAcquireSpinLock(&m_PositionSpinLock, &oldIrql);
++    for (auto* current = m_NotificationList.Flink; current != &m_NotificationList; current = current->Flink)
++    {
++        if (CONTAINING_RECORD(current, NotificationListEntry, ListEntry)->NotificationEvent == NotificationEvent_)
+         {
+-            m_pPortStream->UnmapAllocatedPages(m_pDmaBuffer, Mdl_);
+-            m_pDmaBuffer = NULL;
++            KeReleaseSpinLock(&m_PositionSpinLock, oldIrql);
++            ExFreePoolWithTag(entry, MINWAVERTSTREAM_POOLTAG);
++            return STATUS_UNSUCCESSFUL;
+         }
+-{ws:ssssssss}
+-        m_pPortStream->FreePagesFromMdl(Mdl_);
+-    }
+-{ws:ssss}
+-    m_ulDmaBufferSize = 0;
+-    m_ulNotificationsPerBuffer = 0;
+-
+-    return;
+-}
+-
+-//=============================================================================
+-#pragma code_seg("PAGE")
+-NTSTATUS CMiniportWaveRTStream::RegisterNotificationEvent
++    }
++
++    InsertTailList(&m_NotificationList, &entry->ListEntry);
++    KeReleaseSpinLock(&m_PositionSpinLock, oldIrql);
++    return STATUS_SUCCESS;
++}
++
++//=============================================================================
++#pragma code_seg()
++NTSTATUS CMiniportWaveRTStream::UnregisterNotificationEvent
+ (
+     _In_ PKEVENT NotificationEvent_
+ )
+ {
+-    UNREFERENCED_PARAMETER(NotificationEvent_);
+-
+-    PAGED_CODE();
+-
+-    NotificationListEntry *nleNew = (NotificationListEntry*)ExAllocatePool2({ws:s}
+-        POOL_FLAG_NON_PAGED,
+-        sizeof(NotificationListEntry),
+-        MINWAVERTSTREAM_POOLTAG);
+-    if (NULL == nleNew)
+-    {
+-        return STATUS_INSUFFICIENT_RESOURCES;
+-    }
+-
+-    nleNew->NotificationEvent = NotificationEvent_;
+-
+-    // Fail if the notification event already exists in our list.
+-    if (!IsListEmpty(&m_NotificationList))
+-    {
+-        PLIST_ENTRY leCurrent = m_NotificationList.Flink;
+-        while (leCurrent != &m_NotificationList)
++    NT_ASSERT(KeGetCurrentIrql() == PASSIVE_LEVEL);
++
++    // Unlink while the callback is excluded, then release the node at the caller's IRQL.
++    KIRQL oldIrql;
++    KeAcquireSpinLock(&m_PositionSpinLock, &oldIrql);
++    for (auto* current = m_NotificationList.Flink; current != &m_NotificationList; current = current->Flink)
++    {
++        auto* entry = CONTAINING_RECORD(current, NotificationListEntry, ListEntry);
++        if (entry->NotificationEvent == NotificationEvent_)
+         {
+-            NotificationListEntry* nleCurrent = CONTAINING_RECORD( leCurrent, NotificationListEntry, ListEntry);
+-            if (nleCurrent->NotificationEvent == NotificationEvent_)
+-            {
+-                ExFreePoolWithTag( nleNew, MINWAVERTSTREAM_POOLTAG );
+-                return STATUS_UNSUCCESSFUL;
+-            }
+-
+-            leCurrent = leCurrent->Flink;
++            RemoveEntryList(current);
++            KeReleaseSpinLock(&m_PositionSpinLock, oldIrql);
++            ExFreePoolWithTag(entry, MINWAVERTSTREAM_POOLTAG);
++            return STATUS_SUCCESS;
+         }
+     }
+{ws:s}
+-    InsertTailList(&m_NotificationList, &(nleNew->ListEntry));
+-{ws:ssss}
+-    return STATUS_SUCCESS;
+-}
+-
+-//=============================================================================
+-#pragma code_seg("PAGE")
+-NTSTATUS CMiniportWaveRTStream::UnregisterNotificationEvent
+-(
+-    _In_ PKEVENT NotificationEvent_
+-)
+-{
+-    UNREFERENCED_PARAMETER(NotificationEvent_);
+-
+-    PAGED_CODE();
+-
+-    if (!IsListEmpty(&m_NotificationList))
+-    {
+-        PLIST_ENTRY leCurrent = m_NotificationList.Flink;
+-        while (leCurrent != &m_NotificationList)
+-        {
+-            NotificationListEntry* nleCurrent = CONTAINING_RECORD( leCurrent, NotificationListEntry, ListEntry);
+-            if (nleCurrent->NotificationEvent == NotificationEvent_)
+-            {
+-                RemoveEntryList( leCurrent );
+-                ExFreePoolWithTag( nleCurrent, MINWAVERTSTREAM_POOLTAG );
+-                return STATUS_SUCCESS;
+-            }
+-
+-            leCurrent = leCurrent->Flink;
+-        }
+-    }
+-
++    KeReleaseSpinLock(&m_PositionSpinLock, oldIrql);
+     return STATUS_NOT_FOUND;
+ }
+{ws:s}
+@@ -754,7 +732,7 @@
+ }
+{ws:s}
+ //=============================================================================
+-#pragma code_seg("PAGE")
++#pragma code_seg()
+ VOID CMiniportWaveRTStream::FreeAudioBuffer
+ (
+ _In_opt_    PMDL        Mdl_,
+@@ -762,22 +740,23 @@
+ )
+ {
+     UNREFERENCED_PARAMETER(Size_);
+-
+-    PAGED_CODE();
+-
+-    if (Mdl_ != NULL)
+-    {
+-        if (m_pDmaBuffer != NULL)
+-        {
+-            m_pPortStream->UnmapAllocatedPages(m_pDmaBuffer, Mdl_);
+-            m_pDmaBuffer = NULL;
+-        }
+-
+-        m_pPortStream->FreePagesFromMdl(Mdl_);
+-    }
+-
++    NT_ASSERT(KeGetCurrentIrql() == PASSIVE_LEVEL);
++
++    if (Mdl_ == nullptr) return;
++
++    // The callback sees the disconnected buffer before these pages are released at PASSIVE_LEVEL.
++    KIRQL oldIrql;
++    KeAcquireSpinLock(&m_PositionSpinLock, &oldIrql);
++    auto* mappedBuffer = m_pDmaBuffer;
++    m_pDmaBuffer = nullptr;
+     m_ulDmaBufferSize = 0;
+     m_ulNotificationsPerBuffer = 0;
++    m_ulNotificationIntervalMs = 0;
++    ExCancelTimer(m_pNotificationTimer, nullptr);
++    KeReleaseSpinLock(&m_PositionSpinLock, oldIrql);
++
++    if (mappedBuffer != nullptr) m_pPortStream->UnmapAllocatedPages(mappedBuffer, Mdl_);
++    m_pPortStream->FreePagesFromMdl(Mdl_);
+ }
+{ws:s}
+ //=============================================================================
+@@ -826,7 +805,14 @@
+     //
+     //  A WaveRT miniport driver should not require software access to the audio buffer itself."
+     //{ws:sss}
+-    m_pDmaBuffer = (BYTE*)m_pPortStream->MapAllocatedPages(pBufferMdl, MmCached);
++    auto* mappedBuffer = static_cast<BYTE*>(m_pPortStream->MapAllocatedPages(pBufferMdl, MmCached));
++    if (mappedBuffer == nullptr)
++    {
++        m_pPortStream->FreePagesFromMdl(pBufferMdl);
++        return STATUS_INSUFFICIENT_RESOURCES;
++    }
++
++    m_pDmaBuffer = mappedBuffer;
+{ws:s}
+     m_ulDmaBufferSize = RequestedSize_;
+     m_ulNotificationsPerBuffer = 0;
+@@ -1195,6 +1181,8 @@
+ #endif // defined(SYSVAD_BTH_BYPASS) || defined(SYSVAD_USB_SIDEBAND)
+             }
+             KeAcquireSpinLock(&m_PositionSpinLock, &oldIrql);
++            m_KsState = KSSTATE_STOP;
++            ExCancelTimer(m_pNotificationTimer, nullptr);
+             // Reset DMA
+             m_llPacketCounter = 0;
+             m_ullPlayPosition = 0;
+@@ -1341,7 +1329,15 @@
+             {
+                 m_pMiniport->m_KeywordDetector.Run();
+             }
++            KeAcquireSpinLock(&m_PositionSpinLock, &oldIrql);
++            if (m_ulDmaBufferSize == 0)
++            {
++                KeReleaseSpinLock(&m_PositionSpinLock, oldIrql);
++                return STATUS_INVALID_DEVICE_STATE;
++            }
++
+             ullPerfCounterTemp = KeQueryPerformanceCounter(&m_ullPerformanceCounterFrequency);
++            m_KsState = KSSTATE_RUN;
+             m_ullLastDPCTimeStamp = m_ullDmaTimeStamp = KSCONVERT_PERFORMANCE_TIME(m_ullPerformanceCounterFrequency.QuadPart, ullPerfCounterTemp);
+{ws:s}
+             if (m_ulNotificationIntervalMs > 0)
+@@ -1360,10 +1356,13 @@
+{ws:s}
+             }
+{ws:s}
+-            break;
+-    }
+-
++            KeReleaseSpinLock(&m_PositionSpinLock, oldIrql);
++            return ntStatus;
++    }
++
++    KeAcquireSpinLock(&m_PositionSpinLock, &oldIrql);
+     m_KsState = State_;
++    KeReleaseSpinLock(&m_PositionSpinLock, oldIrql);
+{ws:s}
+ #if defined(SYSVAD_BTH_BYPASS) || defined(SYSVAD_USB_SIDEBAND)
+ Done:
+@@ -1399,6 +1398,8 @@
+     _In_ LARGE_INTEGER ilQPC
+ )
+ {
++    if (m_ulDmaBufferSize == 0) return;
++
+     // Convert ticks to 100ns units.
+     LONGLONG  hnsCurrentTime = KSCONVERT_PERFORMANCE_TIME(m_ullPerformanceCounterFrequency.QuadPart, ilQPC);
+{ws:sssss}
+@@ -1750,6 +1751,11 @@
+{ws:s}
+     KIRQL oldIrql;
+     KeAcquireSpinLock(&_this->m_PositionSpinLock, &oldIrql);
++    if (_this->m_KsState != KSSTATE_RUN || _this->m_ulDmaBufferSize == 0 || _this->m_ulNotificationsPerBuffer == 0)
++    {
++        KeReleaseSpinLock(&_this->m_PositionSpinLock, oldIrql);
++        return;
++    }
+{ws:s}
+     qpc = KeQueryPerformanceCounter(&qpcFrequency);
+{ws:s}
+@@ -1794,11 +1800,6 @@
+{ws:s}
+     _this->m_pMiniport->DpcRoutine(qpc.QuadPart, qpcFrequency.QuadPart);
+{ws:s}
+-    if (_this->m_KsState != KSSTATE_RUN)
+-    {
+-        goto End;
+-    }
+-{ws:ssss}
+     PADAPTERCOMMON  pAdapterComm = _this->m_pMiniport->GetAdapterCommObj();
+{ws:s}
+     // Simple buffer underrun detection.
