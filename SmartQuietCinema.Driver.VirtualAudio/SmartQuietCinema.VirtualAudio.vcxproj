@@ -68,7 +68,7 @@
     <FilesToPackage Include="$(TargetPath)" />
   </ItemGroup>
   <Target Name="CheckPinnedSysVad" BeforeTargets="PrepareForBuild">
-    <Error Condition="!Exists('$(SysVadDirectory)\Prepared-v2.txt')" Text="Run Prepare-SysVad.ps1 before building. Move any older obj\SysVAD staging directory aside first." />
+    <Error Condition="!Exists('$(SysVadDirectory)\Prepared-v3.txt')" Text="Run Prepare-SysVad.ps1 before building. Move any older obj\SysVAD staging directory aside first." />
   </Target>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

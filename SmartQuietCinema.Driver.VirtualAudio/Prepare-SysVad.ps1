@@ -17,7 +17,7 @@ if ($LASTEXITCODE -ne 0 -or $head -cne $revision) {
 
 $output = Join-Path $PSScriptRoot 'obj\SysVAD'
 $staged = Join-Path $output 'audio\sysvad'
-$stamp = Join-Path $staged 'Prepared-v2.txt'
+$stamp = Join-Path $staged 'Prepared-v3.txt'
 if ([IO.File]::Exists($stamp) -and [IO.File]::ReadAllText($stamp) -ceq $revision) {
     Write-Output "Prepared SysVAD source already exists at $staged"
     return
@@ -45,7 +45,20 @@ try {
     $captureCall = '(?m)^    //\r?\n    // Install wave\+topology filters for capture devices\r?\n    //\r?\n    ntStatus = InstallAllCaptureFilters\(DeviceObject, Irp, pAdapterCommon\);\r?\n    IF_FAILED_JUMP\(ntStatus, Exit\);\r?\n\r?\n'
     if ([regex]::Matches($adapter, $captureFunctions).Count -ne 2 -or [regex]::Matches($adapter, $captureCall).Count -ne 1) { throw 'The upstream capture registration did not match.' }
     $adapter = [regex]::Replace($adapter, $captureFunctions, '')
-    [IO.File]::WriteAllText($adapterPath, [regex]::Replace($adapter, $captureCall, ''), $encoding)
+    $adapter = [regex]::Replace($adapter, $captureCall, '')
+
+    # Remove the sample's temporary registration of the PnP start thread. WaveRT uses a timer for buffer notifications.
+    $resourceDeclarations = '(?m)^    PPORTCLSStreamResourceManager2?[ \t]+pPortClsResMgr2?[ \t]+=[ \t]+NULL;[ \t]*\r?\n'
+    $resourceDemo = '(?ms)^\r?\n        //\r?\n        // Test: add and remove current thread as streaming audio resource\.[ \t]*\r?\n.*?(?=^    \}\r?$)'
+    if ([regex]::Matches($adapter, $resourceDeclarations).Count -ne 2 -or [regex]::Matches($adapter, $resourceDemo).Count -ne 1) { throw 'The upstream stream-resource demonstration did not match.' }
+    $adapter = [regex]::Replace($adapter, $resourceDeclarations, '')
+    $adapter = [regex]::Replace($adapter, $resourceDemo, '')
+
+    # Keep optional ETW discovery separate from the endpoint installation result now returned to StartDevice.
+    $etwQuery = '(?m)^(        )ntStatus( = unknownWave->QueryInterface \(IID_IPortClsEtwHelper, \(PVOID \*\)&pPortClsEtwHelper\);\r?\n        if \(NT_SUCCESS\()ntStatus(?=\)\))'
+    if ([regex]::Matches($adapter, $etwQuery).Count -ne 1) { throw 'The upstream ETW helper query did not match.' }
+    $adapter = [regex]::Replace($adapter, $etwQuery, '${1}const NTSTATUS etwStatus${2}etwStatus')
+    [IO.File]::WriteAllText($adapterPath, $adapter, $encoding)
 
     $enginePath = Join-Path $staged 'EndpointsCommon\MiniportAudioEngineNode.cpp'
     $engine = [IO.File]::ReadAllText($enginePath)

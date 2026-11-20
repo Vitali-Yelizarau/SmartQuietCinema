@@ -37,7 +37,9 @@ dotnet $probe list
 dotnet $probe defaults
 ```
 
-Stop on any failed command. If a prior staging attempt left an incomplete or outdated `obj/SysVAD`, move that generated subdirectory aside before staging again. The current script writes `Prepared-v2.txt` after applying all source adaptations. Keep the upstream checkout for reproducibility. Run [InfVerif](https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/infverif) on the generated INF.
+Stop on any failed command. If a prior staging attempt left an incomplete or outdated `obj/SysVAD`, move that generated subdirectory aside before staging again. The current script writes `Prepared-v3.txt` after applying all source adaptations. Keep the upstream checkout for reproducibility. Run [InfVerif](https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/infverif) on the generated INF.
+
+The adapter omits the SysVAD demonstration that temporarily registers the current PnP thread and immediately removes it. The render stream uses a timer for WaveRT notifications and does not own a streaming thread or interrupt. Endpoint registration and ETW discovery are retained. The WDK annotates `ResourceSet` as non-null for both resource manager methods. Microsoft documents `NULL` as the required reserved value. See [AddStreamResource](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/portcls/nf-portcls-iportclsstreamresourcemanager-addstreamresource) and [AddStreamResource2](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/portcls/nf-portcls-iportclsstreamresourcemanager2-addstreamresource2).
 
 ### Visual Studio integration and the WDK payload
 

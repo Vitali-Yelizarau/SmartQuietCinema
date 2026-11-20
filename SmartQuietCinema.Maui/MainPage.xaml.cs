@@ -94,7 +94,7 @@ namespace SmartQuietCinema.Maui
         /// The event arguments.
         /// </param>
         private async void OnAudioOutputDeviceChanged(
-            object sender,
+            object? sender,
             EventArgs e)
         {
             if (BindingContext is not MainPageViewModel viewModel)
