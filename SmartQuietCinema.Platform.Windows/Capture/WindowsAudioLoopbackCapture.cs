@@ -318,7 +318,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
             private readonly WaveFormat _format;
             private readonly float[] _original;
             private readonly float[] _processed;
-            private readonly object _sync = new();
+            private readonly Lock _sync = new();
 
             private int _writtenSamples;
             private bool _completed;
