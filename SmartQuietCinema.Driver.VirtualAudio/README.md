@@ -37,7 +37,7 @@ dotnet $probe list
 dotnet $probe defaults
 ```
 
-Stop on any failed command. Move an incomplete or older generated staging directory aside before preparing SysVAD again. The current script writes `Prepared-v4.txt` after applying all source adaptations. The previous `Prepared-v3.txt` stamp is insufficient for this build. Keep the pinned upstream checkout for reproducibility. Run [InfVerif](https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/infverif) on the generated INF.
+Stop on any failed command. Move an incomplete or older generated staging directory aside before preparing SysVAD again. The script applies `SysVad-Preflight.patch` after the existing transformations and writes `Prepared-v5.txt` only after every adaptation succeeds. An older stamp is insufficient for this build. Keep the pinned upstream checkout for reproducibility. Run [InfVerif](https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/infverif) on the generated INF.
 
 The adapter omits the SysVAD demonstration that temporarily registers the current PnP thread and immediately removes it. The render stream uses a timer for WaveRT notifications and does not own a streaming thread or interrupt. Endpoint registration and ETW discovery are retained. The WDK annotates `ResourceSet` as non-null for both resource manager methods. Microsoft documents `NULL` as the required reserved value. See [AddStreamResource](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/portcls/nf-portcls-iportclsstreamresourcemanager-addstreamresource) and [AddStreamResource2](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/portcls/nf-portcls-iportclsstreamresourcemanager2-addstreamresource2).
 
@@ -51,13 +51,23 @@ The Debug x64 build writes the SYS, stamped INF, and unsigned CAT together under
 
 ## Static analysis
 
-See [Static analysis findings](STATIC-ANALYSIS.md) for the MSVC/WDK ruleset, warning registry, initialization and ownership guarantees, and WaveRT notification constraints.
+See [Static analysis findings](STATIC-ANALYSIS.md) for the MSVC/WDK ruleset, warning registry, startup resource-list contract, and WaveRT ownership and notification constraints.
 
 ## Marker validation
 
 Two independent render clients emit continuous deterministic, low-level signals. Source A uses 688 Hz on left and 1104 Hz on right. Source B uses 1424 Hz on left and 1936 Hz on right. The probe starts event-driven loopback first and captures both sources during a bounded overlap. The callback copies packets into preallocated memory and records frame counts, silence flags, discontinuities after startup, timestamp errors, and position gaps.
 
 The analyzer projects Hann-windowed 125 ms chunks onto the marker frequencies at the actual capture rate. Four consecutive windows must contain both sources in the correct stereo channels. Projections allow gain and phase changes and require the expected frequency to exceed opposite-channel leakage. A fixed unrelated tone cannot satisfy all four projections. Significant energy at the pinned SysVAD default loopback tone of 3000 Hz also fails, even alongside the markers. The command reports no frames and captured silence separately, rejects malformed or truncated capture and nonfinite samples, and fails on observed transport errors. This is a controlled test for recognizable PCM and channel placement, with no bit-exact comparison. Keep other audio off the test endpoint while probing.
+
+## Hyper-V preflight
+
+The INF model decoration `NTamd64.10.0...22621` selects Windows 11 x64 build 22621 or later. Use a currently serviced x64 Windows 11 guest that meets this floor. The packaged INF declares `ks.inf` and `wdmaudio.inf` dependencies supplied by Windows and stamps KMDF 1.15. The built SYS imports PortCls, the NT kernel, HAL, and the Windows KMDF loader. Keep the stamped INF, matching SYS and CAT together. Generating the CAT and passing InfVerif checks package structure. The current SYS and CAT are unsigned and the package is **not ready to install**.
+
+A later guest session requires a package whose signature satisfies the guest's Code Integrity policy. A self-signed test package on ordinary x64 Windows requires the separate test-signing setup and certificate trust. Memory Integrity requires a digital signature on the image even in test mode. With Secure Boot retained, Microsoft preproduction signing requires a provisioned guest and the appropriate preproduction signature. Changes to Secure Boot, BCD, test signing, or certificate trust are outside this preflight and require separate approval for the guest. [Windows test signing](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/the-testsigning-boot-configuration-option) · [Secure Boot preproduction signing](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/preproduction-driver-signing-and-install)
+
+**Driver runtime and PnP lifetime: Not yet validated.** The startup resource-list contract is resolved in source. Before admitting an active-stream removal or first unqualified driver trial, resolve the open adapter-lifetime and notification-quiescence question described in [Static analysis findings](STATIC-ANALYSIS.md#wavert-ownership-and-notification-ordering). Build and INF checks do not establish PortCls runtime behavior.
+
+For a later approved installation, retain a clean pre-install Hyper-V checkpoint and confirm access to the guest console. Record the exact package hashes and the assigned device instance ID. Check the prototype's Device Manager status or `pnputil /enum-devices /instanceid "<experimental-instance-id>" /drivers` and preserve `%SystemRoot%\INF\setupapi.dev.log`, the `Microsoft-Windows-CodeIntegrity/Operational` log, relevant System PnP events and any crash dump. SetupAPI distinguishes package and binding failures from failures to start a bound device. On a crash, failed boot, or unsafe cleanup, save diagnostics outside the guest disk if possible and restore the known-clean checkpoint. A checkpoint does not replace a backup. [SetupAPI device logs](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/setupapi-device-installation-log-entries) · [Code Integrity logs](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/code-integrity-event-log-messages) · [Hyper-V checkpoints](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/checkpoints)
 
 ## Authorized laboratory procedure
 
