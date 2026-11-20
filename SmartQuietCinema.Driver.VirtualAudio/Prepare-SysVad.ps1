@@ -24,6 +24,37 @@ function Update-PinnedSource {
     return $Source.Replace($pattern, ($After -replace '\r?\n', $lineBreak))
 }
 
+function Invoke-StagedSysVadPatch {
+    <# .SYNOPSIS
+    Restores the pinned source's line endings and applies one adaptation only inside the generated tree.
+    #>
+    param([string]$Output, [string]$Patch, [Text.Encoding]$Encoding)
+
+    $expandedPatch = Join-Path $Output 'sysvad-expanded.patch'
+    $patchText = [Text.StringBuilder]::new()
+    foreach ($line in [IO.File]::ReadLines($Patch)) {
+        if ($line -match '^[ +\-](?![+\-]{2} )' -or $line -match '^\{ws:[st]+\}$') {
+            $restored = [regex]::Replace($line, '\{ws:([st]+)\}$', [Text.RegularExpressions.MatchEvaluator]{
+                param($token)
+                return $token.Groups[1].Value.Replace('s', ' ').Replace('t', "`t")
+            })
+            [void]$patchText.Append($restored).Append("`r`n")
+        } else {
+            [void]$patchText.Append($line).Append("`n")
+        }
+    }
+    [IO.File]::WriteAllText($expandedPatch, $patchText.ToString(), $Encoding)
+    $oldCeiling = [Environment]::GetEnvironmentVariable('GIT_CEILING_DIRECTORIES')
+    try {
+        $env:GIT_CEILING_DIRECTORIES = [IO.Path]::GetDirectoryName($Output)
+        & git -C $Output -c core.whitespace=cr-at-eol apply --whitespace=error -- $expandedPatch
+        if ($LASTEXITCODE -ne 0) { throw "Could not apply the SysVAD adaptation: $Patch" }
+    } finally {
+        [Environment]::SetEnvironmentVariable('GIT_CEILING_DIRECTORIES', $oldCeiling)
+        [IO.File]::Delete($expandedPatch)
+    }
+}
+
 $revision = 'd49bb7d72f3651952b2b6e4ad28d14fe2247eb69'
 $head = & git -C $SourceCheckout rev-parse HEAD
 if ($LASTEXITCODE -ne 0 -or $head -cne $revision) {
@@ -32,7 +63,7 @@ if ($LASTEXITCODE -ne 0 -or $head -cne $revision) {
 
 $output = Join-Path $PSScriptRoot 'obj\SysVAD'
 $staged = Join-Path $output 'audio\sysvad'
-$stamp = Join-Path $staged 'Prepared-v5.txt'
+$stamp = Join-Path $staged 'Prepared-v6.txt'
 if ([IO.File]::Exists($stamp) -and [IO.File]::ReadAllText($stamp) -ceq $revision) {
     Write-Output "Prepared SysVAD source already exists at $staged"
     return
@@ -146,7 +177,8 @@ try {
         return STATUS_NOT_SUPPORTED;
     }
 '@
-    [IO.File]::WriteAllText($miniportPath, $miniport.Replace($entry, "$entry`n`n$renderOnly"), $encoding)
+    $miniport = Update-PinnedSource $miniport $entry "$entry`n`n$renderOnly"
+    [IO.File]::WriteAllText($miniportPath, $miniport, $encoding)
 
     $streamPath = Join-Path $staged 'EndpointsCommon\minwavertstream.cpp'
     $stream = [IO.File]::ReadAllText($streamPath)
@@ -154,32 +186,8 @@ try {
     if ([regex]::Matches($stream, [regex]::Escape($sine)).Count -ne 1) { throw 'The upstream capture generator did not match.' }
     [IO.File]::WriteAllText($streamPath, $stream.Replace($sine, 'RtlZeroMemory(m_pDmaBuffer + bufferOffset, runWrite);'), $encoding)
 
-    # Restore exact CRLF and upstream trailing whitespace only in patch bodies.
-    $preflightPatch = Join-Path $PSScriptRoot 'SysVad-Preflight.patch'
-    $expandedPatch = Join-Path $output 'preflight-expanded.patch'
-    $patchText = [Text.StringBuilder]::new()
-    foreach ($line in [IO.File]::ReadLines($preflightPatch)) {
-        if ($line -match '^[ +\-](?![+\-]{2} )' -or $line -match '^\{ws:[st]+\}$') {
-            $restored = [regex]::Replace($line, '\{ws:([st]+)\}$', [Text.RegularExpressions.MatchEvaluator]{
-                param($token)
-                return $token.Groups[1].Value.Replace('s', ' ').Replace('t', "`t")
-            })
-            [void]$patchText.Append($restored).Append("`r`n")
-        } else {
-            [void]$patchText.Append($line).Append("`n")
-        }
-    }
-    [IO.File]::WriteAllText($expandedPatch, $patchText.ToString(), $encoding)
-    $oldCeiling = [Environment]::GetEnvironmentVariable('GIT_CEILING_DIRECTORIES')
-    try {
-        # Apply only inside the generated tree, without discovering its parent repository or touching its index.
-        $env:GIT_CEILING_DIRECTORIES = [IO.Path]::GetDirectoryName($output)
-        & git -C $output -c core.whitespace=cr-at-eol apply --whitespace=error -- $expandedPatch
-        if ($LASTEXITCODE -ne 0) { throw 'Could not apply the preflight patch to staged SysVAD.' }
-    } finally {
-        [Environment]::SetEnvironmentVariable('GIT_CEILING_DIRECTORIES', $oldCeiling)
-        [IO.File]::Delete($expandedPatch)
-    }
+    Invoke-StagedSysVadPatch $output (Join-Path $PSScriptRoot 'SysVad-Preflight.patch') $encoding
+    Invoke-StagedSysVadPatch $output (Join-Path $PSScriptRoot 'SysVad-AdapterOwnership.patch') $encoding
 
     [IO.File]::WriteAllText($stamp, $revision, $encoding)
     Write-Output "Prepared SysVAD $revision at $staged"

@@ -1,0 +1,541 @@
+diff --git a/audio/sysvad/adapter.cpp b/audio/sysvad/adapter.cpp
+--- a/audio/sysvad/adapter.cpp
++++ b/audio/sysvad/adapter.cpp
+@@ -1016,12 +1016,17 @@
+ Exit:
+{ws:s}
+-    //
+-    // Stash the adapter common object in the device extension so
+-    // we can access it for cleanup on stop/removal.
+-    //
+-    if (pAdapterCommon)
+-    {
+-        ASSERT(pExtension != NULL);
+-        pExtension->m_pCommon = pAdapterCommon;
++    // Transfer the queried reference only on success. A failed start must break any endpoint reference cycles.
++    if (pAdapterCommon != nullptr)
++    {
++        if (NT_SUCCESS(ntStatus))
++        {
++            ASSERT(pExtension->m_pCommon == nullptr);
++            pExtension->m_pCommon = pAdapterCommon;
++        }
++        else
++        {
++            pAdapterCommon->Cleanup();
++            SAFE_RELEASE(pAdapterCommon);
++        }
+     }
+{ws:s}
+@@ -1114,14 +1119,16 @@
+     case IRP_MN_SURPRISE_REMOVAL:
+     case IRP_MN_STOP_DEVICE:
++    {
+         ext = static_cast<PortClassDeviceContext*>(_DeviceObject->DeviceExtension);
+-
+-        if (ext->m_pCommon != NULL)
++        // PnP serializes terminal IRPs for the FDO. Retain the extension's reference locally through shutdown.
++        auto* adapter = ext->m_pCommon;
++        ext->m_pCommon = nullptr;
++        if (adapter != nullptr)
+         {
+-            ext->m_pCommon->Cleanup();
+-{ws:ssssssssssss}
+-            ext->m_pCommon->Release();
+-            ext->m_pCommon = NULL;
++            adapter->Cleanup();
++            adapter->Release();
+         }
+         break;
++    }
+{ws:s}
+     default:
+diff --git a/audio/sysvad/common.h b/audio/sysvad/common.h
+--- a/audio/sysvad/common.h
++++ b/audio/sysvad/common.h
+@@ -562,4 +562,16 @@
+     ) PURE;
+{ws:s}
++    /// <summary>Checks whether this generation accepts new operational requests.</summary>
++    _IRQL_requires_max_(DISPATCH_LEVEL)
++    STDMETHOD_(BOOLEAN, IsAvailable)(THIS) PURE;
++
++    /// <summary>Admits short nonblocking activity while shutdown can still wait for it.</summary>
++    _IRQL_requires_max_(DISPATCH_LEVEL)
++    STDMETHOD_(BOOLEAN, TryBeginActivity)(THIS) PURE;
++
++    /// <summary>Completes one admitted activity before resources may be detached.</summary>
++    _IRQL_requires_max_(DISPATCH_LEVEL)
++    STDMETHOD_(VOID, EndActivity)(THIS) PURE;
++
+     STDMETHOD_(NTSTATUS,        WriteEtwEvent){ws:s}
+     ({ws:s}
+diff --git a/audio/sysvad/common.cpp b/audio/sysvad/common.cpp
+--- a/audio/sysvad/common.cpp
++++ b/audio/sysvad/common.cpp
+@@ -85,5 +85,8 @@
+         PPORTCLSETWHELPER       m_pPortClsEtwHelper;
+{ws:s}
+-        static LONG             m_AdapterInstances;     // # of adapter objects.
++        EX_RUNDOWN_REF          m_ActivityRundown{};
++        volatile LONG           m_ShutdownStarted = FALSE;
++
++        static LONG             m_AdapterInstances;     // Active generation or start in progress.
+{ws:s}
+         DWORD                   m_dwIdleRequests;
+@@ -188,4 +191,8 @@
+             _In_  ULONG           Channel
+         );
++
++        _IRQL_requires_max_(DISPATCH_LEVEL) STDMETHODIMP_(BOOLEAN) IsAvailable();
++        _IRQL_requires_max_(DISPATCH_LEVEL) STDMETHODIMP_(BOOLEAN) TryBeginActivity();
++        _IRQL_requires_max_(DISPATCH_LEVEL) STDMETHODIMP_(VOID) EndActivity();
+{ws:s}
+         STDMETHODIMP_(NTSTATUS) WriteEtwEvent{ws:s}
+@@ -583,6 +590,5 @@
+{ws:s}
+     //
+-    // This sample supports only one instance of this object.
+-    // (b/c of CSaveData's static members and Bluetooth HFP logic).{ws:s}
++    // Serialize active generations. A stopped adapter may remain alive through outstanding streams.
+     //
+     if (InterlockedCompareExchange(&CAdapterCommon::m_AdapterInstances, 1, 0) != 0)
+@@ -653,6 +659,6 @@
+     }
+{ws:s}
+-    InterlockedDecrement(&CAdapterCommon::m_AdapterInstances);
+-    ASSERT(CAdapterCommon::m_AdapterInstances == 0);
++    // If initialization never reached Cleanup, the factory slot still belongs to this object.
++    if (IsAvailable()) InterlockedDecrement(&CAdapterCommon::m_AdapterInstances);
+ #ifdef SYSVAD_USB_SIDEBAND
+     ASSERT(IsListEmpty(&m_PowerRelations));
+@@ -793,4 +799,5 @@
+{ws:s}
+     InitializeListHead(&m_SubdeviceCache);
++    ExInitializeRundownProtection(&m_ActivityRundown);
+{ws:s}
+ #ifdef SYSVAD_USB_SIDEBAND
+@@ -809,4 +816,5 @@
+{ws:s}
+     //
++#if defined(SYSVAD_BTH_BYPASS) || defined(SYSVAD_USB_SIDEBAND) || defined(SYSVAD_A2DP_SIDEBAND)
+     // Create a WDF miniport to represent the adapter. Note that WDF miniports{ws:s}
+     // are NOT audio miniports. An audio adapter is associated with a single WDF
+@@ -824,4 +832,5 @@
+         DPF(D_ERROR, ("WdfDeviceMiniportCreate failed, 0x%x", ntStatus)),
+         Done);
++#endif
+{ws:s}
+     // Initialize HW.
+@@ -840,5 +849,5 @@
+     // Initialize SaveData class.
+     //
+-    CSaveData::SetDeviceObject(DeviceObject);   //device object is needed by CSaveData
++    if (!g_DoNotCreateDataFiles) CSaveData::SetDeviceObject(DeviceObject);
+ Done:
+{ws:s}
+@@ -937,4 +946,33 @@
+ */
+ #pragma code_seg()
++/// <summary>Reports whether the adapter still accepts new work for this device generation.</summary>
++_Use_decl_annotations_
++STDMETHODIMP_(BOOLEAN)
++CAdapterCommon::IsAvailable()
++{
++    return InterlockedCompareExchange(&m_ShutdownStarted, FALSE, FALSE) == FALSE;
++}
++
++/// <summary>Protects a short timer or ETW operation without extending the lifetime of an open stream.</summary>
++/// <returns>Whether the caller must finish the admitted operation with EndActivity.</returns>
++_Use_decl_annotations_
++STDMETHODIMP_(BOOLEAN)
++CAdapterCommon::TryBeginActivity()
++{
++    if (!IsAvailable() || !ExAcquireRundownProtection(&m_ActivityRundown)) return FALSE;
++    // Recheck so nothing is admitted between publishing shutdown and closing the rundown gate.
++    if (IsAvailable()) return TRUE;
++    EndActivity();
++    return FALSE;
++}
++
++/// <summary>Releases one activity acquired on an adapter the caller already keeps alive.</summary>
++_Use_decl_annotations_
++STDMETHODIMP_(VOID)
++CAdapterCommon::EndActivity()
++{
++    ExReleaseRundownProtection(&m_ActivityRundown);
++}
++
+ STDMETHODIMP
+ CAdapterCommon::WriteEtwEvent
+@@ -949,8 +987,14 @@
+     NTSTATUS ntStatus = STATUS_SUCCESS;
+{ws:s}
+-    if (m_pPortClsEtwHelper)
+-    {
+-        ntStatus = m_pPortClsEtwHelper->MiniportWriteEtwEvent( miniportEventType, ullData1, ullData2, ullData3, ullData4) ;
+-    }
++    // Passive callers must not be suspended by a normal kernel APC while holding rundown.
++    const bool passive = KeGetCurrentIrql() == PASSIVE_LEVEL;
++    if (passive) KeEnterCriticalRegion();
++    if (TryBeginActivity())
++    {
++        auto* helper = static_cast<PPORTCLSETWHELPER>(InterlockedCompareExchangePointer(reinterpret_cast<PVOID volatile*>(&m_pPortClsEtwHelper), nullptr, nullptr));
++        if (helper != nullptr) ntStatus = helper->MiniportWriteEtwEvent(miniportEventType, ullData1, ullData2, ullData3, ullData4);
++        EndActivity();
++    }
++    if (passive) KeLeaveCriticalRegion();
+     return ntStatus;
+ } // WriteEtwEvent
+@@ -966,11 +1010,10 @@
+     PAGED_CODE();
+ {ws:ssss}
+-    SAFE_RELEASE(m_pPortClsEtwHelper);
+-
+-    m_pPortClsEtwHelper = _pPortClsEtwHelper;
+-
+-    if (m_pPortClsEtwHelper)
+-    {
+-        m_pPortClsEtwHelper->AddRef();
++    if (_pPortClsEtwHelper == nullptr) return;
++    // Start publishes the optional helper once, before the device extension owns this generation.
++    _pPortClsEtwHelper->AddRef();
++    if (InterlockedCompareExchangePointer(reinterpret_cast<PVOID volatile*>(&m_pPortClsEtwHelper), _pPortClsEtwHelper, nullptr) != nullptr)
++    {
++        _pPortClsEtwHelper->Release();
+     }
+ } // SetEtwHelper
+@@ -1517,4 +1560,7 @@
+     DPF_ENTER(("[CAdapterCommon::PowerChangeState]"));
+{ws:s}
++    if (!IsAvailable()) return;
++
++#if defined(SYSVAD_BTH_BYPASS) || defined(SYSVAD_USB_SIDEBAND) || defined(SYSVAD_A2DP_SIDEBAND)
+     // Notify all registered miniports of a power state change
+     PLIST_ENTRY le = NULL;
+@@ -1528,4 +1574,5 @@
+         }
+     }
++#endif
+{ws:s}
+     // is this actually a state change??
+@@ -1618,4 +1665,8 @@
+     DPF_ENTER(("[CAdapterCommon::QueryPowerChangeState]"));
+{ws:s}
++    // The software-only endpoint has no hardware power transition to veto.
++    UNREFERENCED_PARAMETER(NewStateQuery);
++#if defined(SYSVAD_BTH_BYPASS) || defined(SYSVAD_USB_SIDEBAND) || defined(SYSVAD_A2DP_SIDEBAND)
++    if (!IsAvailable()) return status;
+     // query each miniport for it's power state, we're finished if even one indicates
+     // it cannot go to this power state.
+@@ -1630,4 +1681,5 @@
+         }
+     }
++#endif
+{ws:s}
+     return status;
+@@ -2327,4 +2379,11 @@
+     DPF_ENTER(("[CAdapterCommon::Cleanup]"));
+{ws:s}
++    NT_ASSERT(KeGetCurrentIrql() == PASSIVE_LEVEL);
++    if (InterlockedExchange(&m_ShutdownStarted, TRUE) != FALSE) return;
++    ExWaitForRundownProtectionRelease(&m_ActivityRundown);
++
++    // Break the helper/port/miniport and cache/miniport reference cycles before dropping the PnP reference.
++    SAFE_RELEASE(m_pPortClsEtwHelper);
++
+ #ifdef SYSVAD_BTH_BYPASS
+     //
+@@ -2352,4 +2411,12 @@
+{ws:s}
+     EmptySubdeviceCache();
++    if (m_WdfDevice != nullptr)
++    {
++        WdfObjectDelete(m_WdfDevice);
++        m_WdfDevice = nullptr;
++    }
++
++    // Keep the slot reserved through cleanup, even when the old object will outlive this device generation.
++    InterlockedDecrement(&CAdapterCommon::m_AdapterInstances);
+ }
+{ws:s}
+diff --git a/audio/sysvad/EndpointsCommon/minwavert.h b/audio/sysvad/EndpointsCommon/minwavert.h
+--- a/audio/sysvad/EndpointsCommon/minwavert.h
++++ b/audio/sysvad/EndpointsCommon/minwavert.h
+@@ -283,4 +283,5 @@
+{ws:s}
+ #pragma code_seg("PAGE")
++    /// <summary>Creates a WaveRT miniport and retains its adapter while streams can still reference the miniport.</summary>
+     CMiniportWaveRT(
+         _In_            PUNKNOWN                                UnknownAdapter,
+@@ -305,5 +306,7 @@
+         PAGED_CODE();
+{ws:s}
+-        m_pAdapterCommon = (PADAPTERCOMMON)UnknownAdapter; // weak ref.
++        // The installing adapter owns UnknownAdapter throughout construction.
++        m_pAdapterCommon = (PADAPTERCOMMON)UnknownAdapter;
++        m_pAdapterCommon->AddRef();
+{ws:s}
+         if (MiniportPair->WaveDescriptor)
+@@ -438,9 +441,33 @@
+{ws:s}
+{ws:s}
+-    PADAPTERCOMMON GetAdapterCommObj(){ws:s}
+-    {
+-        return m_pAdapterCommon;{ws:s}
+-    };
+ #pragma code_seg()
++    /// <summary>Checks whether the owning adapter still accepts device work.</summary>
++    _IRQL_requires_max_(DISPATCH_LEVEL)
++    BOOLEAN IsDeviceAvailable()
++    {
++        return m_pAdapterCommon->IsAvailable();
++    }
++
++    /// <summary>Admits nonblocking timer work while terminal PnP can drain it.</summary>
++    _IRQL_requires_max_(DISPATCH_LEVEL)
++    BOOLEAN TryBeginTimerActivity()
++    {
++        return m_pAdapterCommon->TryBeginActivity();
++    }
++
++    /// <summary>Finishes timer activity while the stream still owns this miniport.</summary>
++    _IRQL_requires_max_(DISPATCH_LEVEL)
++    VOID EndTimerActivity()
++    {
++        m_pAdapterCommon->EndActivity();
++    }
++
++    /// <summary>Forwards an optional engine event through the adapter's synchronized ETW access.</summary>
++    /// <param name="kind">The PortCls event that defines the four payload slots.</param>
++    _IRQL_requires_max_(DISPATCH_LEVEL)
++    VOID WriteEtwEvent(EPcMiniportEngineEvent kind, ULONGLONG data1, ULONGLONG data2, ULONGLONG data3, ULONGLONG data4)
++    {
++        m_pAdapterCommon->WriteEtwEvent(kind, data1, data2, data3, data4);
++    }
+{ws:s}
+ #ifdef SYSVAD_BTH_BYPASS
+diff --git a/audio/sysvad/EndpointsCommon/minwavert.cpp b/audio/sysvad/EndpointsCommon/minwavert.cpp
+--- a/audio/sysvad/EndpointsCommon/minwavert.cpp
++++ b/audio/sysvad/EndpointsCommon/minwavert.cpp
+@@ -202,4 +202,5 @@
+ #endif // defined(SYSVAD_BTH_BYPASS) || defined(SYSVAD_USB_SIDEBAND)
+{ws:s}
++    SAFE_RELEASE(m_pAdapterCommon);
+ } // ~CMiniportWaveRT
+{ws:s}
+@@ -672,8 +673,10 @@
+     DPF_ENTER(("[CMiniportWaveRT::NewStream]"));
+{ws:s}
++    *OutStream = nullptr;
++    if (!IsDeviceAvailable()) return STATUS_DEVICE_REMOVED;
++
+     // This adapter exposes only the system render sink. The audio engine owns loopback.
+     if (Capture)
+     {
+-        *OutStream = nullptr;
+         return STATUS_NOT_SUPPORTED;
+     }
+@@ -683,5 +686,4 @@
+     GUID                        signalProcessingMode = AUDIO_SIGNALPROCESSINGMODE_DEFAULT;
+ {ws:ssss}
+-    *OutStream = NULL;
+{ws:s}
+      //
+@@ -737,4 +739,6 @@
+         }
+     }
++
++    if (NT_SUCCESS(ntStatus) && !IsDeviceAvailable()) ntStatus = STATUS_DEVICE_REMOVED;
+{ws:s}
+     if (NT_SUCCESS(ntStatus))
+diff --git a/audio/sysvad/EndpointsCommon/minwavertstream.cpp b/audio/sysvad/EndpointsCommon/minwavertstream.cpp
+--- a/audio/sysvad/EndpointsCommon/minwavertstream.cpp
++++ b/audio/sysvad/EndpointsCommon/minwavertstream.cpp
+@@ -538,4 +538,5 @@
+ {
+     PAGED_CODE();
++    if (!m_pMiniport->IsDeviceAvailable()) return STATUS_DEVICE_REMOVED;
+{ws:s}
+     if ( (0 == RequestedSize_) || (RequestedSize_ < m_pWfExt->Format.nBlockAlign) )
+@@ -635,4 +636,5 @@
+ {
+     NT_ASSERT(KeGetCurrentIrql() == PASSIVE_LEVEL);
++    if (!m_pMiniport->IsDeviceAvailable()) return STATUS_DEVICE_REMOVED;
+{ws:s}
+     if (NotificationEvent_ == nullptr) return STATUS_INVALID_PARAMETER;
+@@ -772,4 +774,5 @@
+ {
+     PAGED_CODE();
++    if (!m_pMiniport->IsDeviceAvailable()) return STATUS_DEVICE_REMOVED;
+{ws:s}
+     if ((0 == RequestedSize_) || (RequestedSize_ < m_pWfExt->Format.nBlockAlign))
+@@ -833,4 +836,5 @@
+ )
+ {
++    if (!m_pMiniport->IsDeviceAvailable()) return STATUS_DEVICE_REMOVED;
+     NTSTATUS ntStatus;
+{ws:s}
+@@ -997,4 +1001,5 @@
+ )
+ {
++    if (!m_pMiniport->IsDeviceAvailable()) return STATUS_DEVICE_REMOVED;
+     NTSTATUS ntStatus;
+{ws:s}
+@@ -1107,4 +1112,6 @@
+ )
+ {
++    if (!m_pMiniport->IsDeviceAvailable()) return STATUS_DEVICE_REMOVED;
++
+     ASSERT(pPacketCount);
+{ws:s}
+@@ -1139,6 +1146,19 @@
+ {
+     NTSTATUS        ntStatus        = STATUS_SUCCESS;
+-    PADAPTERCOMMON  pAdapterComm    = m_pMiniport->GetAdapterCommObj();
+     KIRQL oldIrql;
++
++    if (State_ != KSSTATE_STOP && !m_pMiniport->IsDeviceAvailable())
++    {
++        // PortCls may still unwind the previous state after terminal PnP.
++        KeAcquireSpinLock(&m_PositionSpinLock, &oldIrql);
++        const bool descending = State_ <= m_KsState && State_ != KSSTATE_RUN;
++        if (descending)
++        {
++            m_KsState = State_;
++            ExCancelTimer(m_pNotificationTimer, nullptr);
++        }
++        KeReleaseSpinLock(&m_PositionSpinLock, oldIrql);
++        return descending ? STATUS_SUCCESS : STATUS_DEVICE_REMOVED;
++    }
+{ws:s}
+     // Spew an event for a pin state change request from portcls
+@@ -1148,5 +1168,5 @@
+     //Parameter 3: Pin State 0->KS_STOP, 1->KS_ACQUIRE, 2->KS_PAUSE, 3->KS_RUN{ws:s}
+     //Parameter 4: 0
+-    pAdapterComm->WriteEtwEvent(eMINIPORT_PIN_STATE,
++    m_pMiniport->WriteEtwEvent(eMINIPORT_PIN_STATE,
+                                 m_ullLinearPosition, // replace with the correct "Current linear buffer position"
+                                 m_ulCurrentWritePosition, // replace with the previous WaveRtBufferWritePosition that the driver received
+@@ -1331,8 +1351,9 @@
+             }
+             KeAcquireSpinLock(&m_PositionSpinLock, &oldIrql);
+-            if (m_ulDmaBufferSize == 0)
++            const BOOLEAN available = m_pMiniport->IsDeviceAvailable();
++            if (!available || m_ulDmaBufferSize == 0)
+             {
+                 KeReleaseSpinLock(&m_PositionSpinLock, oldIrql);
+-                return STATUS_INVALID_DEVICE_STATE;
++                return available ? STATUS_INVALID_DEVICE_STATE : STATUS_DEVICE_REMOVED;
+             }
+{ws:s}
+@@ -1458,5 +1479,4 @@
+         {
+             m_bLastBufferRendered = TRUE;
+-            PADAPTERCOMMON pAdapterComm = m_pMiniport->GetAdapterCommObj();
+             //Event type : eMINIPORT_LAST_BUFFER_RENDERED
+             //Parameter 1 : Current linear buffer position
+@@ -1464,5 +1484,5 @@
+             //Parameter 3 : 0
+             //Parameter 4 : 0
+-            pAdapterComm->WriteEtwEvent(eMINIPORT_LAST_BUFFER_RENDERED,
++            m_pMiniport->WriteEtwEvent(eMINIPORT_LAST_BUFFER_RENDERED,
+                                         m_ullLinearPosition + ByteDisplacement, // Current linear buffer position{ws:ss}
+                                         m_ulCurrentWritePosition, // The very last WaveRtBufferWritePosition that the driver received
+@@ -1739,6 +1759,4 @@
+     BOOL bufferCompleted = FALSE;
+{ws:s}
+-    UNREFERENCED_PARAMETER(Timer);
+-
+     _IRQL_limited_to_(DISPATCH_LEVEL);
+{ws:s}
+@@ -1754,4 +1772,12 @@
+     if (_this->m_KsState != KSSTATE_RUN || _this->m_ulDmaBufferSize == 0 || _this->m_ulNotificationsPerBuffer == 0)
+     {
++        KeReleaseSpinLock(&_this->m_PositionSpinLock, oldIrql);
++        return;
++    }
++
++    if (!_this->m_pMiniport->TryBeginTimerActivity())
++    {
++        // A periodic timer may fire once after shutdown. Cancel it without touching its detached resources.
++        ExCancelTimer(Timer, nullptr);
+         KeReleaseSpinLock(&_this->m_PositionSpinLock, oldIrql);
+         return;
+@@ -1801,6 +1827,4 @@
+     _this->m_pMiniport->DpcRoutine(qpc.QuadPart, qpcFrequency.QuadPart);
+{ws:s}
+-    PADAPTERCOMMON  pAdapterComm = _this->m_pMiniport->GetAdapterCommObj();
+-
+     // Simple buffer underrun detection.
+     if (!_this->IsCurrentWaveRTWritePositionUpdated() && !_this->m_bEoSReceived)
+@@ -1811,5 +1835,5 @@
+         //Parameter 3: Major glitch code: 1:WaveRT buffer is underrun
+         //Parameter 4: Minor code for the glitch cause
+-        pAdapterComm->WriteEtwEvent(eMINIPORT_GLITCH_REPORT,{ws:s}
++        _this->m_pMiniport->WriteEtwEvent(eMINIPORT_GLITCH_REPORT,
+                                     _this->m_ullLinearPosition,
+                                     _this->GetCurrentWaveRTWritePosition(),
+@@ -1834,5 +1858,5 @@
+             //Parameter 3: Data length completed
+             //Parameter 4: 0
+-            pAdapterComm->WriteEtwEvent(eMINIPORT_BUFFER_COMPLETE,
++            _this->m_pMiniport->WriteEtwEvent(eMINIPORT_BUFFER_COMPLETE,
+                                         _this->m_ullLinearPosition,
+                                         _this->GetCurrentWaveRTWritePosition(),
+@@ -1852,4 +1876,5 @@
+ End:
+     KeReleaseSpinLock(&_this->m_PositionSpinLock, oldIrql);
++    _this->m_pMiniport->EndTimerActivity();
+     return;
+ }
+diff --git a/audio/sysvad/EndpointsCommon/MiniportStreamAudioEngineNode.cpp b/audio/sysvad/EndpointsCommon/MiniportStreamAudioEngineNode.cpp
+--- a/audio/sysvad/EndpointsCommon/MiniportStreamAudioEngineNode.cpp
++++ b/audio/sysvad/EndpointsCommon/MiniportStreamAudioEngineNode.cpp
+@@ -740,5 +740,4 @@
+     ASSERT (_pPresentationPosition);
+     LARGE_INTEGER timeStamp;
+-    PADAPTERCOMMON pAdapterComm = m_pMiniport->GetAdapterCommObj();
+{ws:s}
+     DPF_ENTER(("[CMiniportWaveRTStream::GetPresentationPosition]"));
+@@ -762,5 +761,5 @@
+     //Parameter 3: Presentation position
+     //Parameter 4: 0
+-    pAdapterComm->WriteEtwEvent(eMINIPORT_GET_PRESENTATION_POSITION,
++    m_pMiniport->WriteEtwEvent(eMINIPORT_GET_PRESENTATION_POSITION,
+                                 ullLinearPosition, // replace with the correct "Current linear buffer position"{ws:ssss}
+                                 m_ulCurrentWritePosition,
+@@ -806,4 +805,6 @@
+ NTSTATUS CMiniportWaveRTStream::SetCurrentWritePositionInternal(_In_  ULONG _ulCurrentWritePosition)
+ {
++    if (!m_pMiniport->IsDeviceAvailable()) return STATUS_DEVICE_REMOVED;
++
+     DPF_ENTER(("[CMiniportWaveRTStream::SetCurrentWritePositionInternal]"));
+ {ws:ssss}
+@@ -820,5 +821,4 @@
+     }
+ {ws:ssss}
+-    PADAPTERCOMMON pAdapterComm = m_pMiniport->GetAdapterCommObj();
+{ws:s}
+     //Event type: eMINIPORT_SET_WAVERT_BUFFER_WRITE_POSITION
+@@ -827,5 +827,5 @@
+     //Parameter 3: Target WaveRtBufferWritePosition received from portcls
+     //Parameter 4: 0
+-    pAdapterComm->WriteEtwEvent(eMINIPORT_SET_WAVERT_BUFFER_WRITE_POSITION,{ws:s}
++    m_pMiniport->WriteEtwEvent(eMINIPORT_SET_WAVERT_BUFFER_WRITE_POSITION,
+                                 m_ullLinearPosition, // replace with the correct "Current linear buffer position"{ws:ssss}
+                                 m_ulCurrentWritePosition,
+@@ -845,5 +845,5 @@
+             //Parameter 3: Major glitch code: 3: Received same WaveRT buffer twice in a row during event driven mode
+             //Parameter 4: Minor code for the glitch cause
+-            pAdapterComm->WriteEtwEvent(eMINIPORT_GLITCH_REPORT,{ws:s}
++            m_pMiniport->WriteEtwEvent(eMINIPORT_GLITCH_REPORT,
+                                         m_ullLinearPosition, // replace with the correct "Current linear buffer position"
+                                         m_ulCurrentWritePosition,
+@@ -867,4 +867,6 @@
+     )
+ {
++    if (!m_pMiniport->IsDeviceAvailable()) return STATUS_DEVICE_REMOVED;
++
+     DPF_ENTER(("[CMiniportWaveRTStream::GetPositions]"));
+{ws:s}
