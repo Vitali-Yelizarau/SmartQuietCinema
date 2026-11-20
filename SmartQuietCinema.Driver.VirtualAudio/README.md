@@ -37,7 +37,7 @@ dotnet $probe list
 dotnet $probe defaults
 ```
 
-Stop on any failed command. If a prior staging attempt left an incomplete or outdated `obj/SysVAD`, move that generated subdirectory aside before staging again. The current script writes `Prepared-v3.txt` after applying all source adaptations. Keep the upstream checkout for reproducibility. Run [InfVerif](https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/infverif) on the generated INF.
+Stop on any failed command. Move an incomplete or older generated staging directory aside before preparing SysVAD again. The current script writes `Prepared-v4.txt` after applying all source adaptations. The previous `Prepared-v3.txt` stamp is insufficient for this build. Keep the pinned upstream checkout for reproducibility. Run [InfVerif](https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/infverif) on the generated INF.
 
 The adapter omits the SysVAD demonstration that temporarily registers the current PnP thread and immediately removes it. The render stream uses a timer for WaveRT notifications and does not own a streaming thread or interrupt. Endpoint registration and ETW discovery are retained. The WDK annotates `ResourceSet` as non-null for both resource manager methods. Microsoft documents `NULL` as the required reserved value. See [AddStreamResource](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/portcls/nf-portcls-iportclsstreamresourcemanager-addstreamresource) and [AddStreamResource2](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/portcls/nf-portcls-iportclsstreamresourcemanager2-addstreamresource2).
 
@@ -48,6 +48,10 @@ Visual Studio can discover `WindowsKernelModeDriver10.0` from its WDK extension 
 The verified environment uses Visual Studio 2026, SDK build 28000, and full WDK `10.0.28000.3231`. In this kit, `InfVerif.exe` is under `Tools\10.0.28000.0\x64` and `Inf2Cat.exe` is under `bin\10.0.28000.0\x86`. The project targets Windows 11 build 22621 at compile time and in the INF. Inf2Cat uses `10_NI_X64`, `10_GE_X64`, and `10_25H2_X64` for Windows 11 22H2, 24H2, and 25H2, respectively. See [Windows Driver Kit](https://learn.microsoft.com/en-us/windows-hardware/drivers/download-the-wdk) and [Inf2Cat](https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/inf2cat).
 
 The Debug x64 build writes the SYS, stamped INF, and unsigned CAT together under `bin/x64/Debug/SmartQuietCinema.VirtualAudio`. Treat the binary, INF validation, catalog generation, and signature as separate checks. Verify the package signature on the laboratory system before deployment. See [driver signing options](https://learn.microsoft.com/en-us/windows-hardware/drivers/dashboard/driver-signing-offerings).
+
+## Static analysis
+
+See [Static analysis findings](STATIC-ANALYSIS.md) for the MSVC/WDK ruleset, warning registry, initialization and ownership guarantees, and WaveRT notification constraints.
 
 ## Marker validation
 

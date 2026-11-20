@@ -123,6 +123,8 @@ _attackCoefficient = CalculateCoefficient(
 
 ## Documentation and Comments
 
+When reviewing or implementing code, document important previously undocumented behavior, architectural assumptions, API contracts, resource ownership, threading constraints, limitations, and technical risks. Prefer verified explanations of why code works a certain way and what may be affected by changing it. Do not add redundant comments or present unverified assumptions as facts.
+
 ### Language
 
 - Write all project documentation exclusively in English. This includes every Markdown documentation file, such as `AGENTS.md`, `README.md`, architecture documents, and development guidelines. All headings, descriptions, instructions, and examples in `AGENTS.md` must be in English.
