@@ -13,6 +13,8 @@ internal static class SelfTest
     {
         var cases = new (string Name, Func<bool> Check)[]
         {
+            ("WASAPI marker sources preserve interleaved PCM at 44.1 kHz", () => ChecksRenderSources(44100)),
+            ("WASAPI marker sources preserve interleaved PCM at 48 kHz", () => ChecksRenderSources(48000)),
             ("Stereo mixture at 44.1 kHz with gain and phase offsets", () => Mixed(44100).Passed),
             ("Stereo mixture at 48 kHz with gain and phase offsets", () => Mixed(48000).Passed),
             ("Only source A is rejected", () => !Mixed(48000, second: false).Passed),
@@ -39,6 +41,40 @@ internal static class SelfTest
         }
         Console.WriteLine($"Synthetic tests: {passed} passed, {cases.Length - passed} failed, 0 skipped.");
         return passed == cases.Length ? 0 : 1;
+    }
+
+    /// <summary>
+    /// Reads both production render providers at the requested rate and checks stereo format, phase across odd-sized reads,
+    /// and joint marker detection to catch generator and capture analyzer regressions without an audio device.
+    /// </summary>
+    /// <param name="rate">The source and synthetic capture sample rate in Hertz.</param>
+    /// <returns>Whether the providers produce the same continuous PCM and the expected two distinct markers.</returns>
+    private static bool ChecksRenderSources(int rate)
+    {
+        const int FirstRequestSamples = 257;
+        const int SecondRequestSamples = 1031;
+        var mixture = new float[rate * 2];
+        for (int marker = 0; marker < 2; marker++)
+        {
+            var source = new PcmMarkers.Source(marker, rate);
+            if (source.WaveFormat.Encoding != WaveFormatEncoding.IeeeFloat || source.WaveFormat.SampleRate != rate ||
+                source.WaveFormat.Channels != 2 || source.WaveFormat.BitsPerSample != 32) return false;
+
+            var split = new float[mixture.Length];
+            int read = source.Read(split.AsSpan(0, FirstRequestSamples));
+            read += source.Read(split.AsSpan(FirstRequestSamples, SecondRequestSamples));
+            read += source.Read(split.AsSpan(FirstRequestSamples + SecondRequestSamples));
+            var whole = new float[mixture.Length];
+            if (read != split.Length || new PcmMarkers.Source(marker, rate).Read(whole) != whole.Length || !split.AsSpan().SequenceEqual(whole)) return false;
+
+            var single = PcmMarkers.Analyze(split, rate);
+            if (single.StockToneWindows != 0 || single.JointWindows != 0 || (marker == 0
+                ? single.FirstWindows == 0 || single.SecondWindows != 0
+                : single.SecondWindows == 0 || single.FirstWindows != 0)) return false;
+
+            for (int i = 0; i < split.Length; i++) mixture[i] += split[i];
+        }
+        return PcmMarkers.Analyze(mixture, rate).Passed;
     }
 
     /// <summary>Simulates a captured mixture with independent gains and phases to verify overlap and channel separation.</summary>
