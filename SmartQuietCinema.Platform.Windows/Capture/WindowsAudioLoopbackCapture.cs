@@ -30,6 +30,8 @@ namespace SmartQuietCinema.Platform.Windows.Capture
         private long _capturedBytes;
         private bool _disposed;
 
+        const int MAX_CAPTURE_DURATION_SECONDS = 60;
+
         /// <summary>
         /// Gets the total number of audio bytes received
         /// since the capture session started.
@@ -50,6 +52,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
 
         /// <summary>
         /// Starts capturing audio from the specified output device.
+        /// Uses the original float frames to guide lookahead quiet gain for processed diagnostics and A/B audio.
         /// </summary>
         /// 
         /// <param name="deviceId">
@@ -118,7 +121,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
 
                 // Record a short A/B comparison using the captured audio format.
                 AbComparisonCapture? abCapture = isFloat32
-                    ? new AbComparisonCapture(format, 20)
+                    ? new AbComparisonCapture(format, MAX_CAPTURE_DURATION_SECONDS)
                     : null;
 
 
@@ -179,11 +182,8 @@ namespace SmartQuietCinema.Platform.Windows.Capture
                             format.Channels,
                             format.SampleRate);
 
-                        // Attenuate upcoming loud events before they reach the output.
-                        transientController.Process(
-                            processedSamples,
-                            format.Channels,
-                            format.SampleRate);
+                        // Share the captured frames with the lookahead controller so quiet gain can yield before loud events.
+                        transientController.Process(processedSamples, inputSamples, format.Channels, format.SampleRate);
 
                         // Include every processed buffer in the diagnostics.
                         diagnostics.Add(
@@ -450,7 +450,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
             }
 
             /// <summary>
-            /// Saves both recordings in the same audio format.
+            /// Saves both recordings in the same audio format in the user's local sample directory.
             /// </summary>
             private void SaveFiles()
             {
@@ -463,14 +463,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
                             _format.SampleRate, 2)
                         : _format;
 
-                    string folder = Path.Combine(
-                        Environment.GetFolderPath(
-                            Environment.SpecialFolder.MyDocuments),
-                        "SmartQuietCinema",
-                        "AB",
-                        DateTime.Now.ToString("yyyyMMdd_HHmmss_fff"));
-
-                    Directory.CreateDirectory(folder);
+                    string folder = WindowsSampleStorage.CreateCaptureDirectory(WindowsSampleStorage.GetDefaultRoot(), DateTime.Now);
 
                     WriteWav(
                         Path.Combine(folder, "Original.wav"),

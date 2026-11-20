@@ -20,23 +20,28 @@ namespace SmartQuietCinema.Core.DSP
         private const double NoiseFloorDb = -70.0;
         private const double MaximumBoostLevelDb = -50.0;
         private const double QuietNeutralLevelDb = -30.0;
-        private const double LoudThresholdDb = -18.0;
+        private const double LoudThresholdDb = -20.0;
 
         private const double MaximumBoostDb = 12.0;
         private const double MaximumAttenuationDb = 18.0;
         private const double CompressionRatio = 4.0;
+        private const double LoudOutputHeadroomDb = 1.0;
 
         /// <summary>
         /// Calculates the desired gain adjustment
         /// based on the detected signal level.
         /// </summary>
+        /// <remarks>
+        /// Above the loud threshold, compression starts at 4:1 and increases smoothly as the compressed level approaches
+        /// the experimental headroom above the threshold. The attenuation cap takes precedence for extreme input levels.
+        /// </remarks>
         /// <param name="signalLevelDb">
         /// The detected signal level in dBFS.
         /// Negative infinity represents silence.
         /// </param>
         /// <returns>
         /// Positive gain for quiet signals,
-        /// negative gain for loud signals,
+        /// negative gain above the experimental -20 dBFS threshold,
         /// or zero when no adjustment is required.
         /// </returns>
         public double CalculateTargetGainDb(double signalLevelDb)
@@ -80,14 +85,10 @@ namespace SmartQuietCinema.Core.DSP
             if (signalLevelDb <= LoudThresholdDb)
                 return 0.0;
 
-            // Attenuate levels above the loud threshold.
-            double attenuationDb =
-                (signalLevelDb - LoudThresholdDb) *
-                (1.0 - 1.0 / CompressionRatio);
-
-            return -Math.Min(
-                attenuationDb,
-                MaximumAttenuationDb);
+            // Bound the rise in output level without changing the slope at the knee or reversing the output curve.
+            double excessDb = signalLevelDb - LoudThresholdDb;
+            double compressedExcessDb = excessDb / (CompressionRatio + excessDb / LoudOutputHeadroomDb);
+            return -Math.Min(excessDb - compressedExcessDb, MaximumAttenuationDb);
         }
     }
 }

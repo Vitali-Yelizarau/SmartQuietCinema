@@ -16,10 +16,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SmartQuietCinema.Core\SmartQuietCinema.Core.csproj" />
+    <ProjectReference Include="..\SmartQuietCinema.Tools.AudioTestBench\SmartQuietCinema.Tools.AudioTestBench.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <Compile Include="..\SmartQuietCinema.Platform.Windows\Capture\WindowsSampleStorage.cs" Link="WindowsSampleStorage.cs" />
   </ItemGroup>
 
 </Project>

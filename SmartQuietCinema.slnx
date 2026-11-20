@@ -5,4 +5,5 @@
   </Project>
   <Project Path="SmartQuietCinema.Platform.Windows/SmartQuietCinema.Platform.Windows.csproj" />
   <Project Path="SmartQuietCinema.Tests/SmartQuietCinema.Tests.csproj" />
+  <Project Path="SmartQuietCinema.Tools.AudioTestBench/SmartQuietCinema.Tools.AudioTestBench.csproj" />
 </Solution>
