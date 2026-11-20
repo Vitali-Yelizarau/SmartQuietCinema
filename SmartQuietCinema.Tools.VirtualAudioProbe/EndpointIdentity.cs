@@ -32,11 +32,9 @@ internal static class EndpointIdentity
             if (GetDeviceProperty(node, in HardwareIdsKey, out uint type, buffer, ref size, 0) == 0 && type == StringList && size <= buffer.Length)
             {
                 string[] ids = Encoding.Unicode.GetString(buffer, 0, (int)size).Split('\0', StringSplitOptions.RemoveEmptyEntries);
-                if (ids.Contains(HardwareId, StringComparer.OrdinalIgnoreCase))
-                    return true;
+                if (ids.Contains(HardwareId, StringComparer.OrdinalIgnoreCase)) return true;
             }
-            if (GetParent(out uint parent, node, 0) != 0)
-                break;
+            if (GetParent(out uint parent, node, 0) != 0) break;
 
             node = parent;
         }

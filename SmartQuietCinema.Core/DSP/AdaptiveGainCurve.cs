@@ -46,17 +46,12 @@ namespace SmartQuietCinema.Core.DSP
         /// </returns>
         public double CalculateTargetGainDb(double signalLevelDb)
         {
-            if (double.IsNegativeInfinity(signalLevelDb))
-                return 0.0;
+            if (double.IsNegativeInfinity(signalLevelDb)) return 0.0;
 
-            if (!double.IsFinite(signalLevelDb))
-            {
-                throw new ArgumentOutOfRangeException(nameof(signalLevelDb));
-            }
+            if (!double.IsFinite(signalLevelDb)) throw new ArgumentOutOfRangeException(nameof(signalLevelDb));
 
             // Do not amplify near-silence.
-            if (signalLevelDb <= NoiseFloorDb)
-                return 0.0;
+            if (signalLevelDb <= NoiseFloorDb) return 0.0;
 
             // Gradually introduce amplification
             // above the configured noise floor.
@@ -77,8 +72,7 @@ namespace SmartQuietCinema.Core.DSP
             }
 
             // Preserve signals within the neutral range.
-            if (signalLevelDb <= LoudThresholdDb)
-                return 0.0;
+            if (signalLevelDb <= LoudThresholdDb) return 0.0;
 
             // Bound the rise in output level without changing the slope at the knee or reversing the output curve.
             double excessDb = signalLevelDb - LoudThresholdDb;

@@ -68,8 +68,7 @@ namespace SmartQuietCinema.Maui.ViewModels
             get => _isLanguageMenuOpen;
             private set
             {
-                if (_isLanguageMenuOpen == value)
-                    return;
+                if (_isLanguageMenuOpen == value) return;
 
                 _isLanguageMenuOpen = value;
                 OnPropertyChanged(nameof(IsLanguageMenuOpen));
@@ -144,8 +143,7 @@ namespace SmartQuietCinema.Maui.ViewModels
             get => _selectedOutputDevice;
             set
             {
-                if (Equals(_selectedOutputDevice, value))
-                    return;
+                if (Equals(_selectedOutputDevice, value)) return;
 
                 _selectedOutputDevice = value;
 
@@ -161,8 +159,7 @@ namespace SmartQuietCinema.Maui.ViewModels
         /// </summary>
         public void SubscribeToLanguageChanges()
         {
-            if (_isLocalizationSubscribed)
-                return;
+            if (_isLocalizationSubscribed) return;
 
             Localization.PropertyChanged += OnLocalizationChanged;
             _isLocalizationSubscribed = true;
@@ -176,8 +173,7 @@ namespace SmartQuietCinema.Maui.ViewModels
         /// </summary>
         public void UnsubscribeFromLanguageChanges()
         {
-            if (!_isLocalizationSubscribed)
-                return;
+            if (!_isLocalizationSubscribed) return;
 
             Localization.PropertyChanged -= OnLocalizationChanged;
             _isLocalizationSubscribed = false;
@@ -195,8 +191,7 @@ namespace SmartQuietCinema.Maui.ViewModels
 
         private void OnLocalizationChanged(object? sender, PropertyChangedEventArgs e)
         {
-            if (e.PropertyName != nameof(LocalizationService.Culture))
-                return;
+            if (e.PropertyName != nameof(LocalizationService.Culture)) return;
 
             OnPropertyChanged(nameof(CaptureStatus));
             OnPropertyChanged(nameof(ActiveCaptureSourceText));
@@ -224,8 +219,7 @@ namespace SmartQuietCinema.Maui.ViewModels
             get => _capturedBytes;
             private set
             {
-                if (_capturedBytes == value)
-                    return;
+                if (_capturedBytes == value) return;
 
                 _capturedBytes = value;
 
@@ -363,8 +357,7 @@ namespace SmartQuietCinema.Maui.ViewModels
         /// </returns>
         public async Task StopCaptureAsync()
         {
-            if (!CanStopCapture())
-                return;
+            if (!CanStopCapture()) return;
 
             _isBusy = true;
             UpdateCommandStates();
@@ -404,8 +397,7 @@ namespace SmartQuietCinema.Maui.ViewModels
         /// </returns>
         public Task StopCaptureOnDeviceChangeAsync()
         {
-            if (_captureSession is null)
-                return Task.CompletedTask;
+            if (_captureSession is null) return Task.CompletedTask;
 
             return StopCaptureAsync();
         }
@@ -416,10 +408,7 @@ namespace SmartQuietCinema.Maui.ViewModels
         /// </summary>
         public void RefreshCaptureStatistics()
         {
-            if (_captureSession is not null)
-            {
-                CapturedBytes = _captureSession.CapturedBytes;
-            }
+            if (_captureSession is not null) CapturedBytes = _captureSession.CapturedBytes;
         }
 
         /// <summary>

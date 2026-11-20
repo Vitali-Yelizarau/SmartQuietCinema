@@ -96,8 +96,7 @@ namespace SmartQuietCinema.Tests
         public void Process_QuietOnset_ImprovesEarlyWindowsWithoutDoublingGain(string history, float noisePeak)
         {
             float[] input = Transition(DefaultRate, history == "sustained loud" ? 0.32f : 0.0f, 0.010f, noisePeak);
-            if (history == "sharp impact")
-                input[DefaultRate - 1] = 0.8f;
+            if (history == "sharp impact") input[DefaultRate - 1] = 0.8f;
 
             float[] baseline = ProcessAligned(input, 1, DefaultRate, enhance: false);
             float[] candidate = ProcessAligned(input, 1, DefaultRate);
@@ -115,8 +114,7 @@ namespace SmartQuietCinema.Tests
             Assert.True(changes[2] > 1.0);
             Assert.InRange(changes[3], 0.0, 1.25);
             Assert.InRange(RmsChange(input, candidate, 1500, 1850), 0.0, 12.001);
-            if (history == "sharp impact")
-                Assert.Equal(baseline[DefaultRate - 1], candidate[DefaultRate - 1]);
+            if (history == "sharp impact") Assert.Equal(baseline[DefaultRate - 1], candidate[DefaultRate - 1]);
         }
 
         /// <summary>
@@ -156,10 +154,8 @@ namespace SmartQuietCinema.Tests
             float[] candidate = ProcessAligned(input, 1, DefaultRate);
             double first200 = RmsChange(baseline, candidate, 1000, 1200);
             _output.WriteLine($"Background alone, peak {noisePeak:F5}, after loud = {afterLoud}: {first200:+0.00;-0.00} dB candidate vs baseline in 200 ms.");
-            if (eligible)
-                Assert.InRange(first200, 0.25, 3.001);
-            else
-                Assert.True(BitwiseEqual(baseline.AsSpan(DefaultRate), candidate.AsSpan(DefaultRate)));
+            if (eligible) Assert.InRange(first200, 0.25, 3.001);
+            else Assert.True(BitwiseEqual(baseline.AsSpan(DefaultRate), candidate.AsSpan(DefaultRate)));
         }
 
         /// <summary>
@@ -238,8 +234,7 @@ namespace SmartQuietCinema.Tests
             for (int offset = 0; offset < split.Length; offset += channels)
             {
                 Assert.Equal(-0.5f * split[offset + active], split[offset + channels - 1]);
-                if (channels == 6)
-                    Assert.Equal(0.0f, split[offset]);
+                if (channels == 6) Assert.Equal(0.0f, split[offset]);
             }
         }
 
@@ -336,10 +331,8 @@ namespace SmartQuietCinema.Tests
             {
                 Span<float> block = output.AsSpan(offset, Math.Min(blockSamples, output.Length - offset));
                 dynamics.Process(block, channels, sampleRate);
-                if (enhance)
-                    transient.Process(block, original.AsSpan(offset, block.Length), channels, sampleRate);
-                else
-                    transient.Process(block, channels, sampleRate);
+                if (enhance) transient.Process(block, original.AsSpan(offset, block.Length), channels, sampleRate);
+                else transient.Process(block, channels, sampleRate);
             }
             Assert.Equal(Math.Max(1, (int)Math.Ceiling(sampleRate * 0.012)), transient.LatencyFrames);
             int latencySamples = transient.LatencyFrames * channels;
@@ -362,12 +355,10 @@ namespace SmartQuietCinema.Tests
             double previous = 1.0;
             for (int frame = start; frame <= end; frame++)
             {
-                if (Math.Abs(baseline[frame]) < 0.00001f)
-                    continue;
+                if (Math.Abs(baseline[frame]) < 0.00001f) continue;
                 double gain = candidate[frame] / (double)baseline[frame];
                 Assert.InRange(gain, 0.999999, 1.413);
-                if (previousFrame >= 0)
-                    Assert.InRange(Math.Abs(gain - previous), 0.0, (frame - previousFrame) * 0.413 / latency + 0.000001);
+                if (previousFrame >= 0) Assert.InRange(Math.Abs(gain - previous), 0.0, (frame - previousFrame) * 0.413 / latency + 0.000001);
                 previous = gain;
                 previousFrame = frame;
             }

@@ -53,8 +53,7 @@ internal static class SelfTest
                     samples[frame * 2 + channel] = 0.5f * PcmMarkers.Sample(0, swap ? 1 - channel : channel, frame + 55, rate);
                 if (second && (!sequential || frame >= rate))
                     samples[frame * 2 + channel] += 0.8f * PcmMarkers.Sample(1, swap ? 1 - channel : channel, frame + 173, rate);
-                if (addStockTone)
-                    samples[frame * 2 + channel] += (float)(0.025 * Math.Sin(2 * Math.PI * 3000 * frame / rate));
+                if (addStockTone) samples[frame * 2 + channel] += (float)(0.025 * Math.Sin(2 * Math.PI * 3000 * frame / rate));
             }
         }
         return PcmMarkers.Analyze(samples, rate);

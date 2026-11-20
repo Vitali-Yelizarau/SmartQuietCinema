@@ -22,12 +22,9 @@ internal static class Program
         }
         try
         {
-            if (args is ["self-test"])
-                return SelfTest.Run();
-            if (args is ["list"])
-                return ListRenderEndpoints();
-            if (args is ["defaults"])
-                return ReadDefaultEndpoints();
+            if (args is ["self-test"]) return SelfTest.Run();
+            if (args is ["list"]) return ListRenderEndpoints();
+            if (args is ["defaults"]) return ReadDefaultEndpoints();
             if (args.Length is 2 or 3 && args[0] == "probe" && !string.IsNullOrWhiteSpace(args[1]))
             {
                 int rate = 48000;
@@ -70,8 +67,7 @@ internal static class Program
             string kind = EndpointIdentity.IsExpected(endpoint) ? "SmartQuietCinema experiment" : "other render endpoint";
             Console.WriteLine($"{endpoint.ID}\t{endpoint.FriendlyName}\t[{kind}]");
         }
-        if (endpoints.Count == 0)
-            Console.WriteLine("No active render endpoints.");
+        if (endpoints.Count == 0) Console.WriteLine("No active render endpoints.");
         return 0;
     }
 
@@ -89,8 +85,7 @@ internal static class Program
         for (int i = 0; i < endpoints.Count; i++)
         {
             using var endpoint = endpoints[i];
-            if (!string.Equals(endpoint.ID, endpointId, StringComparison.OrdinalIgnoreCase))
-                continue;
+            if (!string.Equals(endpoint.ID, endpointId, StringComparison.OrdinalIgnoreCase)) continue;
             if (!EndpointIdentity.IsExpected(endpoint))
                 throw new InvalidOperationException("The selected endpoint does not have the SmartQuietCinema experimental adapter identity.");
 
@@ -139,8 +134,7 @@ internal static class Program
             recorder.StopRecording();
         }
 
-        if (failures.Task.IsCompletedSuccessfully)
-            throw new InvalidOperationException("WASAPI stream failed.", await failures.Task);
+        if (failures.Task.IsCompletedSuccessfully) throw new InvalidOperationException("WASAPI stream failed.", await failures.Task);
         float[] samples = capture.Decode(out int invalidSamples);
         var result = PcmMarkers.Analyze(samples, format.SampleRate);
         Console.WriteLine($"Captured frames={capture.Frames}, packets={capture.Packets}, silent frames={capture.SilentFrames}, peak={result.Peak:F6}");

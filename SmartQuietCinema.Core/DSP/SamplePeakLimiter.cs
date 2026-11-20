@@ -32,10 +32,7 @@ namespace SmartQuietCinema.Core.DSP
         {
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
 
-            if (frame.IsEmpty)
-            {
-                throw new ArgumentException("The audio frame must not be empty.", nameof(frame));
-            }
+            if (frame.IsEmpty) throw new ArgumentException("The audio frame must not be empty.", nameof(frame));
 
             if (_cachedSampleRate != sampleRate)
             {

@@ -52,8 +52,7 @@ namespace SmartQuietCinema.Tools.AudioTestBench
             ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
             ArgumentNullException.ThrowIfNull(intervals);
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(bufferFrames);
-            if (!BitConverter.IsLittleEndian)
-                throw new PlatformNotSupportedException("Raw WAV processing requires a little-endian runtime.");
+            if (!BitConverter.IsLittleEndian) throw new PlatformNotSupportedException("Raw WAV processing requires a little-endian runtime.");
 
             using var inputStream = File.OpenRead(inputPath);
             using var reader = new WaveFileReader(inputStream);
@@ -62,8 +61,7 @@ namespace SmartQuietCinema.Tools.AudioTestBench
             int sampleRate = format.SampleRate;
             if (!IsFloat32(format) || sampleRate <= 0 || channels <= 0 || format.BlockAlign != channels * sizeof(float))
                 throw new NotSupportedException("Input must be a 32-bit IEEE float WAV with complete interleaved frames.");
-            if (reader.Length % format.BlockAlign != 0)
-                throw new InvalidDataException("The WAV data ends in an incomplete audio frame.");
+            if (reader.Length % format.BlockAlign != 0) throw new InvalidDataException("The WAV data ends in an incomplete audio frame.");
 
             var dynamics = new AdaptiveDynamicsProcessor();
             var transientController = new LookaheadTransientController();
@@ -134,8 +132,7 @@ namespace SmartQuietCinema.Tools.AudioTestBench
         private static IntervalLevels[] CreateIntervalLevels(IReadOnlyList<TimeInterval> intervals, int channels, int sampleRate,
             long totalFrames, long comparableFrames)
         {
-            if (intervals.Count == 0)
-                return [];
+            if (intervals.Count == 0) return [];
 
             decimal inputDuration = (decimal)totalFrames / sampleRate;
             decimal comparableDuration = (decimal)comparableFrames / sampleRate;
@@ -144,10 +141,8 @@ namespace SmartQuietCinema.Tools.AudioTestBench
             for (int index = 0; index < intervals.Count; index++)
             {
                 TimeInterval interval = intervals[index];
-                if (string.IsNullOrWhiteSpace(interval.Name))
-                    throw new ArgumentException("Every interval must have a nonempty name.");
-                if (!names.Add(interval.Name))
-                    throw new ArgumentException($"Interval name '{interval.Name}' is used more than once.");
+                if (string.IsNullOrWhiteSpace(interval.Name)) throw new ArgumentException("Every interval must have a nonempty name.");
+                if (!names.Add(interval.Name)) throw new ArgumentException($"Interval name '{interval.Name}' is used more than once.");
                 if (interval.StartSeconds < 0 || interval.EndSeconds <= interval.StartSeconds)
                     throw new ArgumentException($"Interval '{interval.Name}' must satisfy 0 <= start < end.");
                 if (interval.StartSeconds >= inputDuration)
@@ -189,14 +184,11 @@ namespace SmartQuietCinema.Tools.AudioTestBench
             {
                 long first = Math.Max(blockStart, _startSample);
                 long end = Math.Min(blockStart + samples.Length, _endSample);
-                if (end <= first)
-                    return;
+                if (end <= first) return;
 
                 ReadOnlySpan<float> overlap = samples.Slice((int)(first - blockStart), (int)(end - first));
-                if (isOutput)
-                    _output.Add(overlap);
-                else
-                    _input.Add(overlap);
+                if (isOutput) _output.Add(overlap);
+                else _input.Add(overlap);
             }
 
             /// <summary>
@@ -215,12 +207,9 @@ namespace SmartQuietCinema.Tools.AudioTestBench
         /// <returns>Whether the payload stores 32-bit IEEE float samples.</returns>
         private static bool IsFloat32(WaveFormat format)
         {
-            if (format.BitsPerSample != 32)
-                return false;
-            if (format.Encoding == WaveFormatEncoding.IeeeFloat)
-                return true;
-            if (format.Encoding != WaveFormatEncoding.Extensible)
-                return false;
+            if (format.BitsPerSample != 32) return false;
+            if (format.Encoding == WaveFormatEncoding.IeeeFloat) return true;
+            if (format.Encoding != WaveFormatEncoding.Extensible) return false;
 
             return format switch
             {
@@ -251,8 +240,7 @@ namespace SmartQuietCinema.Tools.AudioTestBench
             {
                 foreach (float sample in samples)
                 {
-                    if (!float.IsFinite(sample))
-                        continue;
+                    if (!float.IsFinite(sample)) continue;
 
                     double amplitude = Math.Abs((double)sample);
                     Peak = Math.Max(Peak, amplitude);

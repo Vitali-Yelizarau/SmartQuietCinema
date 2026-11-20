@@ -93,8 +93,7 @@ namespace SmartQuietCinema.Maui
         /// </param>
         private async void OnAudioOutputDeviceChanged(object? sender, EventArgs e)
         {
-            if (BindingContext is not MainPageViewModel viewModel)
-                return;
+            if (BindingContext is not MainPageViewModel viewModel) return;
 
             await viewModel.StopCaptureOnDeviceChangeAsync();
         }

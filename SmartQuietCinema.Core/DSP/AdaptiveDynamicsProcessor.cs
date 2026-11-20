@@ -67,10 +67,7 @@ namespace SmartQuietCinema.Core.DSP
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(channels);
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
 
-            if (samples.Length % channels != 0)
-            {
-                throw new ArgumentException("The buffer length must be divisible by the channel count.", nameof(samples));
-            }
+            if (samples.Length % channels != 0) throw new ArgumentException("The buffer length must be divisible by the channel count.", nameof(samples));
 
             // Calculate smoothing coefficients once per buffer.
             double attackCoefficient = Math.Exp(-1000.0 / (GainReductionAttackMs * sampleRate));

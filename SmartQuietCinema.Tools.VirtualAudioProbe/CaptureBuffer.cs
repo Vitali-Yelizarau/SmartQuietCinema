@@ -63,8 +63,7 @@ internal sealed class CaptureBuffer
             return;
         }
         int frames = packet.Length / _blockAlign;
-        if (Packets > 0 && (flags & AudioClientBufferFlags.DataDiscontinuity) != 0)
-            Discontinuities++;
+        if (Packets > 0 && (flags & AudioClientBufferFlags.DataDiscontinuity) != 0) Discontinuities++;
         Packets++;
         Frames += frames;
         if ((flags & AudioClientBufferFlags.TimestampError) != 0)
@@ -74,21 +73,18 @@ internal sealed class CaptureBuffer
         }
         else
         {
-            if (_nextPosition is long expected && expected != position)
-                PositionGaps++;
+            if (_nextPosition is long expected && expected != position) PositionGaps++;
             _nextPosition = position + frames;
         }
 
         bool silent = (flags & AudioClientBufferFlags.Silent) != 0;
-        if (silent)
-            SilentFrames += frames;
+        if (silent) SilentFrames += frames;
         if (packet.Length > _bytes.Length - _length)
         {
             Overflow = true;
             return;
         }
-        if (!silent)
-            packet.CopyTo(_bytes.AsSpan(_length));
+        if (!silent) packet.CopyTo(_bytes.AsSpan(_length));
         _length += packet.Length;
     }
 
@@ -111,10 +107,8 @@ internal sealed class CaptureBuffer
                 3 => ((source[0] | (source[1] << 8) | (source[2] << 16)) << 8) / 2147483648f,
                 _ => _float ? BinaryPrimitives.ReadSingleLittleEndian(source) : BinaryPrimitives.ReadInt32LittleEndian(source) / 2147483648f
             };
-            if (float.IsFinite(sample))
-                samples[i] = sample;
-            else
-                invalidSamples++;
+            if (float.IsFinite(sample)) samples[i] = sample;
+            else invalidSamples++;
         }
         return samples;
     }

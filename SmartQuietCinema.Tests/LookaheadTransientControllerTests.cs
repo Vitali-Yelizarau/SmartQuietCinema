@@ -195,10 +195,8 @@ namespace SmartQuietCinema.Tests
             float laterGain = samples[EnvelopeStart + 260 * FramesPerMillisecond] / 0.48f;
             float recovered = samples[EnvelopeStart + 340 * FramesPerMillisecond] / 0.48f;
             Assert.InRange(firstHold, 0.34f, 0.43f);
-            if (expectRearm)
-                Assert.InRange(Math.Abs(firstHold - laterGain), 0.0f, 0.00001f);
-            else
-                Assert.True(laterGain > firstHold + 0.04f);
+            if (expectRearm) Assert.InRange(Math.Abs(firstHold - laterGain), 0.0f, 0.00001f);
+            else Assert.True(laterGain > firstHold + 0.04f);
             Assert.True(recovered > laterGain + 0.035f);
         }
 
@@ -213,8 +211,7 @@ namespace SmartQuietCinema.Tests
         {
             const int speechStart = EnvelopeTestSampleRate / 2;
             float[] input = CreateQuietSignal(EnvelopeTestSampleRate * 3 / 2);
-            if (hasImpact)
-                input[EnvelopeStart] = 0.8f;
+            if (hasImpact) input[EnvelopeStart] = 0.8f;
             for (int frame = speechStart; frame < input.Length; frame++)
             {
                 double seconds = (double)(frame - speechStart) / EnvelopeTestSampleRate;
@@ -243,8 +240,7 @@ namespace SmartQuietCinema.Tests
                 }
             }
 
-            if (hasImpact)
-                Assert.InRange(previousGain, 0.97, 1.0);
+            if (hasImpact) Assert.InRange(previousGain, 0.97, 1.0);
         }
 
         /// <summary>
@@ -271,8 +267,7 @@ namespace SmartQuietCinema.Tests
             for (int frame = EnvelopeTestSampleRate + processor.LatencyFrames; frame < output.Length; frame++)
             {
                 float original = input[frame - processor.LatencyFrames];
-                if (Math.Abs(original) <= 0.00001f)
-                    continue;
+                if (Math.Abs(original) <= 0.00001f) continue;
 
                 double gain = output[frame] / (double)original;
                 Assert.InRange(gain, previousGain - 0.000001, 1.0);

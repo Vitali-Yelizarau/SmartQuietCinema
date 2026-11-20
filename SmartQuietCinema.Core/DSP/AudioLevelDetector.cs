@@ -37,15 +37,9 @@ namespace SmartQuietCinema.Core.DSP
         /// </param>
         public AudioLevelDetector(double attackMilliseconds, double releaseMilliseconds)
         {
-            if (!double.IsFinite(attackMilliseconds) || attackMilliseconds <= 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(attackMilliseconds));
-            }
+            if (!double.IsFinite(attackMilliseconds) || attackMilliseconds <= 0) throw new ArgumentOutOfRangeException(nameof(attackMilliseconds));
 
-            if (!double.IsFinite(releaseMilliseconds) || releaseMilliseconds <= 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(releaseMilliseconds));
-            }
+            if (!double.IsFinite(releaseMilliseconds) || releaseMilliseconds <= 0) throw new ArgumentOutOfRangeException(nameof(releaseMilliseconds));
 
             _attackMilliseconds = attackMilliseconds;
             _releaseMilliseconds = releaseMilliseconds;
@@ -69,10 +63,7 @@ namespace SmartQuietCinema.Core.DSP
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(channels);
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
 
-            if (samples.Length % channels != 0)
-            {
-                throw new ArgumentException("The buffer length must be divisible by the channel count.", nameof(samples));
-            }
+            if (samples.Length % channels != 0) throw new ArgumentException("The buffer length must be divisible by the channel count.", nameof(samples));
 
             UpdateCoefficients(sampleRate);
 
@@ -100,10 +91,7 @@ namespace SmartQuietCinema.Core.DSP
         {
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
 
-            if (frame.IsEmpty)
-            {
-                throw new ArgumentException("The audio frame must not be empty.", nameof(frame));
-            }
+            if (frame.IsEmpty) throw new ArgumentException("The audio frame must not be empty.", nameof(frame));
 
             UpdateCoefficients(sampleRate);
             ProcessFrame(frame);
@@ -117,8 +105,7 @@ namespace SmartQuietCinema.Core.DSP
         /// </summary>
         private void UpdateCoefficients(int sampleRate)
         {
-            if (_cachedSampleRate == sampleRate)
-                return;
+            if (_cachedSampleRate == sampleRate) return;
 
             _attackCoefficient = Math.Exp(-1000.0 / (_attackMilliseconds * sampleRate));
 

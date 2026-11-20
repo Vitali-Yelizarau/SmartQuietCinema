@@ -66,8 +66,7 @@ namespace SmartQuietCinema.Maui.Services
 
             CultureInfo newCulture = CultureInfo.GetCultureInfo(languageCode);
 
-            if (_culture.Equals(newCulture))
-                return;
+            if (_culture.Equals(newCulture)) return;
 
             _culture = newCulture;
 

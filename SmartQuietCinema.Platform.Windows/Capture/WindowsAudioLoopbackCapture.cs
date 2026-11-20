@@ -77,10 +77,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
             ArgumentException.ThrowIfNullOrWhiteSpace(deviceId);
             ObjectDisposedException.ThrowIf(_disposed, this);
 
-            if (_recorder is not null)
-            {
-                throw new InvalidOperationException("The capture session has already been started.");
-            }
+            if (_recorder is not null) throw new InvalidOperationException("The capture session has already been started.");
 
             using var enumerator = new MMDeviceEnumerator();
 
@@ -133,20 +130,14 @@ namespace SmartQuietCinema.Platform.Windows.Capture
 
                 long lastLevelLogTimestamp = Stopwatch.GetTimestamp();
 
-                if (!isFloat32)
-                {
-                    Debug.WriteLine("[SmartQuietCinema] DSP test skipped: " + "the audio format is not supported.");
-                }
+                if (!isFloat32) Debug.WriteLine("[SmartQuietCinema] DSP test skipped: " + "the audio format is not supported.");
 
                 // Process every captured audio buffer.
                 recorder.DataAvailable += (buffer, _, _, _) =>
                 {
                     Interlocked.Add(ref _capturedBytes, buffer.Length);
 
-                    if (!isFloat32 || buffer.IsEmpty || buffer.Length % format.BlockAlign != 0)
-                    {
-                        return;
-                    }
+                    if (!isFloat32 || buffer.IsEmpty || buffer.Length % format.BlockAlign != 0) return;
 
                     // Interpret the captured bytes as read-only float samples.
                     ReadOnlySpan<float> inputSamples = MemoryMarshal.Cast<byte, float>(buffer);
@@ -178,10 +169,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
                         {
                             float sample = inputSamples[i];
 
-                            if (!float.IsFinite(sample))
-                            {
-                                continue;
-                            }
+                            if (!float.IsFinite(sample)) continue;
 
                             int channel = i % format.Channels;
 
@@ -196,10 +184,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
 
 
                         // Limit diagnostic logging to approximately once per second.
-                        if (Stopwatch.GetElapsedTime(lastLevelLogTimestamp) < TimeSpan.FromSeconds(1))
-                        {
-                            return;
-                        }
+                        if (Stopwatch.GetElapsedTime(lastLevelLogTimestamp) < TimeSpan.FromSeconds(1)) return;
 
                         lastLevelLogTimestamp = Stopwatch.GetTimestamp();
 
@@ -248,10 +233,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
 
                 recorder.RecordingStopped += (_, args) =>
                 {
-                    if (args.Exception is not null)
-                    {
-                        Debug.WriteLine($"WASAPI capture error: {args.Exception}");
-                    }
+                    if (args.Exception is not null) Debug.WriteLine($"WASAPI capture error: {args.Exception}");
                 };
 
                 recorder.StartRecording();
@@ -277,17 +259,13 @@ namespace SmartQuietCinema.Platform.Windows.Capture
         /// </returns>
         public async ValueTask DisposeAsync()
         {
-            if (_disposed)
-                return;
+            if (_disposed) return;
 
             _disposed = true;
 
             try
             {
-                if (_recorder is not null)
-                {
-                    await _recorder.DisposeAsync();
-                }
+                if (_recorder is not null) await _recorder.DisposeAsync();
             }
             finally
             {
@@ -338,10 +316,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
 
                 lock (_sync)
                 {
-                    if (_completed)
-                    {
-                        return;
-                    }
+                    if (_completed) return;
 
                     int count = Math.Min(original.Length, _original.Length - _writtenSamples);
 
@@ -370,15 +345,8 @@ namespace SmartQuietCinema.Platform.Windows.Capture
             /// </summary>
             private bool ContainsOnlyStereoAudio()
             {
-                if (_format.Channels == 2)
-                {
-                    return true;
-                }
-
-                if (_format.Channels < 2)
-                {
-                    return false;
-                }
+                if (_format.Channels == 2) return true;
+                if (_format.Channels < 2) return false;
 
                 for (int i = 0; i < _original.Length; i += _format.Channels)
                 {
@@ -386,10 +354,7 @@ namespace SmartQuietCinema.Platform.Windows.Capture
                     {
                         float sample = _original[i + channel];
 
-                        if (!float.IsFinite(sample) || Math.Abs(sample) > SilentChannelThreshold)
-                        {
-                            return false;
-                        }
+                        if (!float.IsFinite(sample) || Math.Abs(sample) > SilentChannelThreshold) return false;
                     }
                 }
 

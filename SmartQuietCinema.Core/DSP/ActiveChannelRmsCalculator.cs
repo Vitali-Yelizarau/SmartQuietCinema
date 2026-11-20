@@ -27,16 +27,10 @@ namespace SmartQuietCinema.Core.DSP
         {
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
 
-            if (frame.IsEmpty)
-            {
-                throw new ArgumentException("The audio frame must not be empty.", nameof(frame));
-            }
+            if (frame.IsEmpty) throw new ArgumentException("The audio frame must not be empty.", nameof(frame));
 
             // Reinitialize activity tracking when channel count changes.
-            if (_channelEnergy.Length != frame.Length)
-            {
-                _channelEnergy = new double[frame.Length];
-            }
+            if (_channelEnergy.Length != frame.Length) _channelEnergy = new double[frame.Length];
 
             // Cache time coefficients for the current sample rate.
             if (_cachedSampleRate != sampleRate)
@@ -56,10 +50,7 @@ namespace SmartQuietCinema.Core.DSP
                 double sample = frame[channel];
 
                 // Ignore non-finite values in activity estimation.
-                if (!double.IsFinite(sample))
-                {
-                    sample = 0.0;
-                }
+                if (!double.IsFinite(sample)) sample = 0.0;
 
                 double power = sample * sample;
                 double previousEnergy = _channelEnergy[channel];
@@ -75,10 +66,7 @@ namespace SmartQuietCinema.Core.DSP
                 // prevents it from becoming inactive too quickly.
                 bool isActive = power >= ActivityThresholdSquared || smoothedEnergy >= ActivityThresholdSquared;
 
-                if (!isActive)
-                {
-                    continue;
-                }
+                if (!isActive) continue;
 
                 sumSquares += power;
                 activeChannels++;

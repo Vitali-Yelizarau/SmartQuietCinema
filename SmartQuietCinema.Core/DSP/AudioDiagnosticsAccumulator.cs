@@ -33,24 +33,15 @@ namespace SmartQuietCinema.Core.DSP
         /// </summary>
         public void Add(ReadOnlySpan<float> input, ReadOnlySpan<float> output, double gainDb)
         {
-            if (input.Length != output.Length)
-            {
-                throw new ArgumentException("Input and output lengths must match.", nameof(output));
-            }
+            if (input.Length != output.Length) throw new ArgumentException("Input and output lengths must match.", nameof(output));
 
-            if (!double.IsFinite(gainDb))
-            {
-                throw new ArgumentOutOfRangeException(nameof(gainDb));
-            }
+            if (!double.IsFinite(gainDb)) throw new ArgumentOutOfRangeException(nameof(gainDb));
 
             bool hasValidSamples = false;
 
             for (int i = 0; i < input.Length; i++)
             {
-                if (!float.IsFinite(input[i]) || !float.IsFinite(output[i]))
-                {
-                    continue;
-                }
+                if (!float.IsFinite(input[i]) || !float.IsFinite(output[i])) continue;
 
                 double inputAmplitude = Math.Abs((double)input[i]);
                 double outputAmplitude = Math.Abs((double)output[i]);

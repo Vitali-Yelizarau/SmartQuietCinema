@@ -127,21 +127,13 @@ namespace SmartQuietCinema.Core.DSP
 
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
 
-            if (samples.Length % channels != 0)
-            {
-                throw new ArgumentException("The buffer must contain complete audio frames.", nameof(samples));
-            }
+            if (samples.Length % channels != 0) throw new ArgumentException("The buffer must contain complete audio frames.", nameof(samples));
 
-            if (_sampleRate != sampleRate || _channels != channels)
-            {
-                Configure(channels, sampleRate);
-            }
+            if (_sampleRate != sampleRate || _channels != channels) Configure(channels, sampleRate);
 
             bool enhanceQuiet = !originalSamples.IsEmpty;
-            if (enhanceQuiet && _quietLimits.Length != LatencyFrames + 1)
-                _quietLimits = new (long, double)[LatencyFrames + 1];
-            if (!enhanceQuiet && !samples.IsEmpty && _quietFrame != 0)
-                ResetQuietGain();
+            if (enhanceQuiet && _quietLimits.Length != LatencyFrames + 1) _quietLimits = new (long, double)[LatencyFrames + 1];
+            if (!enhanceQuiet && !samples.IsEmpty && _quietFrame != 0) ResetQuietGain();
 
             for (int offset = 0; offset < samples.Length; offset += channels)
             {
@@ -176,16 +168,10 @@ namespace SmartQuietCinema.Core.DSP
 
                 double normalizedTransient = Math.Clamp((transientExcess - TriggerExcessPeak) / (FullReductionExcessPeak - TriggerExcessPeak), 0.0, 1.0);
 
-                if (transientExcess <= TriggerExcessPeak)
-                {
-                    _envelopeHoldArmed = true;
-                }
+                if (transientExcess <= TriggerExcessPeak) _envelopeHoldArmed = true;
 
                 bool envelopeHoldTriggered = _envelopeHoldArmed && transientExcess > EnvelopeHoldTriggerExcess;
-                if (envelopeHoldTriggered)
-                {
-                    _envelopeHoldArmed = false;
-                }
+                if (envelopeHoldTriggered) _envelopeHoldArmed = false;
 
                 bool fastHoldTriggered = framePeak - Math.Max(decayedPeak, _referenceEnvelope) > TriggerExcessPeak;
                 if (fastHoldTriggered || envelopeHoldTriggered)
@@ -220,8 +206,7 @@ namespace SmartQuietCinema.Core.DSP
                 {
                     double limit = CalculateQuietLimit(originalSamples.Slice(offset, channels), sampleRate, framePeak, fastHoldTriggered || envelopeHoldTriggered);
                     double boost = AdvanceQuietGain(limit);
-                    if (boost > 0.0)
-                        outputGain *= 1.0 + boost;
+                    if (boost > 0.0) outputGain *= 1.0 + boost;
                 }
 
                 int delayOffset = _writeFrame * channels;
@@ -239,10 +224,7 @@ namespace SmartQuietCinema.Core.DSP
 
                 _writeFrame++;
 
-                if (_writeFrame == LatencyFrames)
-                {
-                    _writeFrame = 0;
-                }
+                if (_writeFrame == LatencyFrames) _writeFrame = 0;
             }
         }
 
@@ -260,8 +242,7 @@ namespace SmartQuietCinema.Core.DSP
             double originalPeak = 0.0;
             foreach (float sample in originalFrame)
             {
-                if (!float.IsFinite(sample))
-                    return 0.0;
+                if (!float.IsFinite(sample)) return 0.0;
                 originalPeak = Math.Max(originalPeak, Math.Abs((double)sample));
             }
 
@@ -273,14 +254,12 @@ namespace SmartQuietCinema.Core.DSP
 
             double levelDb = 20.0 * Math.Log10(level);
             double quietGainDb = _quietGainCurve.CalculateTargetGainDb(levelDb);
-            if (quietGainDb <= 0.0 || levelDb <= QuietNoiseFloorDb)
-                return 0.0;
+            if (quietGainDb <= 0.0 || levelDb <= QuietNoiseFloorDb) return 0.0;
 
             double referenceGain = Math.Pow(10.0, quietGainDb / 20.0);
             double noiseWeight = Math.Min(1.0, (levelDb - QuietNoiseFloorDb) / (QuietNoiseFadeEndDb - QuietNoiseFloorDb));
             double allowedBoost = Math.Min(referenceGain - 1.0, MaximumQuietBoost) * noiseWeight;
-            if (originalPeak == 0.0 || processedPeak == 0.0)
-                return allowedBoost;
+            if (originalPeak == 0.0 || processedPeak == 0.0) return allowedBoost;
 
             // Account only for gain already applied upstream. Keep existing transient attenuation on the final signal.
             double deficit = Math.Max(0.0, referenceGain * originalPeak / processedPeak - 1.0);
@@ -307,15 +286,13 @@ namespace SmartQuietCinema.Core.DSP
             while (_quietLimitCount > 0)
             {
                 var tail = _quietLimits[(_quietLimitHead + _quietLimitCount - 1) % _quietLimits.Length];
-                if (tail.Boost - (frame - tail.Frame) * _quietFallStep < limit)
-                    break;
+                if (tail.Boost - (frame - tail.Frame) * _quietFallStep < limit) break;
                 _quietLimitCount--;
             }
             _quietLimits[(_quietLimitHead + _quietLimitCount) % _quietLimits.Length] = (frame, limit);
             _quietLimitCount++;
 
-            if (outputFrame < 0)
-                return 0.0;
+            if (outputFrame < 0) return 0.0;
 
             var nextLimit = _quietLimits[_quietLimitHead];
             double outputLimit = nextLimit.Boost + (nextLimit.Frame - outputFrame) * _quietFallStep;

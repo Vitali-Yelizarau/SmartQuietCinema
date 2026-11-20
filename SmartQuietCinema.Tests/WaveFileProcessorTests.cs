@@ -44,8 +44,7 @@ namespace SmartQuietCinema.Tests
             Assert.Equal(channels, output.WaveFormat.Channels);
             Assert.Equal((long)samples.Length * sizeof(float), output.Length);
             Assert.Equal(frames, result.FrameCount);
-            if (frames <= 5)
-                Assert.All(ReadSamples(output), sample => Assert.Equal(0.0f, sample));
+            if (frames <= 5) Assert.All(ReadSamples(output), sample => Assert.Equal(0.0f, sample));
         }
 
         /// <summary>
