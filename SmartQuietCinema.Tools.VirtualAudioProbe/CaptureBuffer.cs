@@ -79,21 +79,48 @@ internal sealed class CaptureBuffer
             InvalidPacket = true;
             return;
         }
-        int frames = packet.Length / _blockAlign;
-        // NAudio projects the native UINT64 fields as long. Keep the original bits for frame and time arithmetic.
-        Continuity.Append(frames, (uint)flags, unchecked((ulong)position), unchecked((ulong)qpc), _traceOrigin is long origin ? Stopwatch.GetTimestamp() - origin : 0);
+        // NAudio projects the native UINT64 fields as long. Keep their original bits.
+        AppendFrames(packet, packet.Length / _blockAlign, (uint)flags, unchecked((ulong)position), unchecked((ulong)qpc));
+    }
+
+    /// <summary>Copies a native packet while leased. A silent packet may carry a null pointer and still contributes its full frame count.</summary>
+    public unsafe void AppendNative(nint data, int frames, uint flags, ulong position, ulong qpc)
+    {
+        bool silent = (flags & PacketContinuity.Silent) != 0;
+        if (frames > 0 && data == 0 && !silent)
+        {
+            InvalidPacket = true;
+            return;
+        }
+        ReadOnlySpan<byte> packet = silent ? default : new((void*)data, checked(frames * _blockAlign));
+        AppendFrames(packet, frames, flags, position, qpc);
+    }
+
+    /// <summary>Tracks a complete frame count without reading undefined silence or copying empty packets.</summary>
+    private void AppendFrames(ReadOnlySpan<byte> packet, int frames, uint flags, ulong position, ulong qpc)
+    {
+        Continuity.Append(frames, flags, position, qpc, _traceOrigin is long origin ? Stopwatch.GetTimestamp() - origin : 0);
         if (frames == 0) return;
         Frames += frames;
 
-        bool silent = (flags & AudioClientBufferFlags.Silent) != 0;
+        bool silent = (flags & PacketContinuity.Silent) != 0;
         if (silent) SilentFrames += frames;
-        if (packet.Length > _bytes.Length - _length)
+        int byteCount = checked(frames * _blockAlign);
+        if (byteCount > _bytes.Length - _length)
         {
             Overflow = true;
             return;
         }
         if (!silent) packet.CopyTo(_bytes.AsSpan(_length));
-        _length += packet.Length;
+        _length += byteCount;
+    }
+
+    /// <summary>Saves captured bytes in their negotiated WAV format after the worker stops, without replacing existing evidence.</summary>
+    public void WriteWave(string path)
+    {
+        using var stream = new FileStream(path, FileMode.CreateNew);
+        using var writer = new WaveFileWriter(stream, _format);
+        writer.Write(_bytes, 0, _length);
     }
 
     /// <summary>

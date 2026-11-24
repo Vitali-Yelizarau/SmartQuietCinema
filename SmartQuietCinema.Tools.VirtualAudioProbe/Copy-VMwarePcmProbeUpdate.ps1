@@ -16,7 +16,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-$name = 'SmartQuietCinema-VMware-PCM-Continuity-win-x64.zip'
+$name = 'SmartQuietCinema-VMware-PCM-Native-win-x64.zip'
 $destinationPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Destination)
 $parent = [IO.Path]::GetDirectoryName($destinationPath)
 if ($destinationPath.StartsWith('\\') -or (Test-Path -LiteralPath $destinationPath) -or ![IO.Directory]::Exists($parent)) {

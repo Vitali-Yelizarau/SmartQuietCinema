@@ -22,7 +22,7 @@ if ($LASTEXITCODE -ne 0 -or $revision -notmatch '\A[0-9a-f]{40,64}\z') { throw '
 $changes = git -C $repo status --porcelain --untracked-files=normal
 if ($LASTEXITCODE -ne 0 -or $changes) { throw 'The update requires a clean Git checkout.' }
 
-$archiveName = 'SmartQuietCinema-VMware-PCM-Continuity-win-x64.zip'
+$archiveName = 'SmartQuietCinema-VMware-PCM-Native-win-x64.zip'
 $entryPoint = 'Probe/SmartQuietCinema.Tools.VirtualAudioProbe.exe'
 $work = Join-Path $parent ('.sqc-probe-' + [guid]::NewGuid().ToString('N'))
 [void][IO.Directory]::CreateDirectory($work)
@@ -39,6 +39,7 @@ try {
     & (Join-Path $payload $entryPoint) self-test
     if ($LASTEXITCODE -ne 0) { throw 'Published probe failed its self-test.' }
     [IO.File]::Copy((Join-Path $PSScriptRoot 'Invoke-VMwareProbeUpdate.ps1'), (Join-Path $payload 'Invoke-VMwareProbeUpdate.ps1'))
+    [IO.File]::Copy((Join-Path $PSScriptRoot 'Export-VMwarePcmEvidence.ps1'), (Join-Path $payload 'Export-VMwarePcmEvidence.ps1'))
     $files = @(foreach ($file in (Get-ChildItem -LiteralPath $payload -File -Recurse | Sort-Object FullName)) {
         $path = $file.FullName.Substring($payload.Length + 1).Replace('\', '/')
         if ($file.Extension -in '.pdb', '.pfx', '.cer', '.sys', '.cat', '.inf') { throw "Unexpected file in user-mode update: $path" }

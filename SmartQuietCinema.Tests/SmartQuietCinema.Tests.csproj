@@ -24,6 +24,8 @@
     <Compile Include="..\SmartQuietCinema.Platform.Windows\Capture\WindowsSampleStorage.cs" Link="WindowsSampleStorage.cs" />
     <Compile Include="..\SmartQuietCinema.Tools.VirtualAudioProbe\EndpointIdentity.cs" Link="EndpointIdentity.cs" />
     <Compile Include="..\SmartQuietCinema.Tools.VirtualAudioProbe\PacketContinuity.cs" Link="PacketContinuity.cs" />
+    <Compile Include="..\SmartQuietCinema.Tools.VirtualAudioProbe\NativePacketReader.cs" Link="NativePacketReader.cs" />
+    <Compile Include="..\SmartQuietCinema.Tools.VirtualAudioProbe\SequenceAlignment.cs" Link="SequenceAlignment.cs" />
   </ItemGroup>
 
 </Project>

@@ -11,6 +11,12 @@ Exact active MMDevice ID of the guest's existing High Definition Audio Device, e
 Unused directory for packet CSV and independent native stdout and stderr. Defaults to a new sibling of the probe ZIP.
 .PARAMETER CompareOrderedDrain
 Runs the original recorder and the release-before-query reader at each requested source rate.
+.PARAMETER CompareNative
+Adds a native WASAPI reader without changing the stereo marker workload.
+.PARAMETER Sequence
+Runs the separate aperiodic native test and saves its capture and reference WAVs.
+.PARAMETER CollectEtw
+Starts a uniquely named WPR recording around the explicitly selected guest PCM cases, when profiles are available.
 #>
 [CmdletBinding()]
 param(
@@ -25,7 +31,11 @@ param(
     [string]$SignToolPath,
     [string]$ControlEndpointId,
     [string]$EvidenceDirectory,
-    [switch]$CompareOrderedDrain
+    [switch]$CompareOrderedDrain,
+    [switch]$CompareNative,
+    [switch]$Sequence,
+    [switch]$CollectEtw,
+    [ValidateRange(1, 5)][int]$Repeat = 1
 )
 
 $ErrorActionPreference = 'Stop'
@@ -97,10 +107,59 @@ function Find-LabTool {
     throw "Supply the verified read-only guest kit path for $FileName."
 }
 
+function Start-PcmEtw {
+    <# .SYNOPSIS
+    Discovers guest instrumentation and starts only existing documented WPR profiles under a private instance name.
+    #>
+    param([string]$Evidence)
+
+    $logman = Get-Command logman.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($logman) {
+        $providerList = Invoke-LabProcess $logman.Path @('query', 'providers') $Evidence 'etw-providers'
+        $available = $providerList.StdOut | Where-Object { $_ -match 'Audio|PortCls|PortClass|Multimedia|Kernel-Process|Kernel-Interrupt' }
+        $available | Set-Content -LiteralPath (Join-Path $Evidence 'etw-relevant-providers.txt') -Encoding UTF8
+        if ($providerList.ExitCode -ne 0) { Write-Warning 'Provider discovery failed. See etw-providers stderr.' }
+        if (!($available -match 'PortCls|PortClass')) { Write-Warning 'No named PortCls provider was discovered by logman. Inspect WPR profile details for actual coverage.' }
+    } else { Write-Warning 'logman.exe is unavailable in this guest.' }
+    $wpr = Get-Command wpr.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (!$wpr) { Write-Warning 'WPR is unavailable in this guest. Probe evidence will still be collected.'; return }
+    $profiles = Invoke-LabProcess $wpr.Path @('-profiles') $Evidence 'wpr-profiles'
+    if ($profiles.ExitCode -ne 0) { Write-Warning 'Unable to enumerate WPR profiles. Probe evidence will still be collected.'; return }
+    $arguments = @()
+    foreach ($profile in 'Audio', 'CPU') {
+        if ($profiles.StdOut -match ('^\s*' + $profile + '(\s|$)')) {
+            [void](Invoke-LabProcess $wpr.Path @('-profiledetails', $profile) $Evidence "wpr-details-$profile")
+            $arguments += @('-start', $profile)
+        } else { Write-Warning "WPR profile $profile is unavailable in this guest." }
+    }
+    if (!$arguments.Count) { return }
+    $instance = 'SmartQuietCinema-' + [guid]::NewGuid().ToString('N')
+    $result = Invoke-LabProcess $wpr.Path ($arguments + @('-filemode', '-instancename', $instance)) $Evidence 'wpr-start'
+    "instance=$instance start_utc=$([DateTimeOffset]::UtcNow.ToString('O')) exit=$($result.ExitCode)" | Set-Content -LiteralPath (Join-Path $Evidence 'etw-session.txt') -Encoding UTF8
+    if ($result.ExitCode -ne 0) { Write-Warning 'WPR failed to start. See the saved logs. Probe evidence will still be collected.'; return }
+    return @{ Path = $wpr.Path; Instance = $instance }
+}
+
+function Stop-PcmEtw {
+    <# .SYNOPSIS
+    Stops only the session started by this invocation and saves its ETL even after a failed PCM case.
+    #>
+    param($Session, [string]$Evidence)
+
+    $etl = Join-Path $Evidence 'pcm-audio-cpu.etl'
+    $result = Invoke-LabProcess $Session.Path @('-stop', $etl, '-instancename', $Session.Instance) $Evidence 'wpr-stop'
+    "stop_utc=$([DateTimeOffset]::UtcNow.ToString('O')) exit=$($result.ExitCode)" | Add-Content -LiteralPath (Join-Path $Evidence 'etw-session.txt') -Encoding UTF8
+    if ($result.ExitCode -ne 0 -or ![IO.File]::Exists($etl)) {
+        Write-Warning "WPR did not save the ETL. Inspect the saved logs for $($Session.Instance)."
+        if ($result.ExitCode -ne 0) { [void](Invoke-LabProcess $Session.Path @('-cancel', '-instancename', $Session.Instance) $Evidence 'wpr-cancel') }
+    }
+}
+
 if ($Check -eq 'Control' -and [string]::IsNullOrWhiteSpace($ControlEndpointId)) { throw 'Select the existing VMware High Definition Audio Device with -ControlEndpointId.' }
 if ($Check -ne 'Control' -and $ControlEndpointId) { throw '-ControlEndpointId is only valid for the Control check.' }
-if ($Check -eq 'Endpoint' -and $CompareOrderedDrain) { throw '-CompareOrderedDrain requires a PCM check.' }
-if (!$ProbeArchive) { $ProbeArchive = Join-Path (Split-Path -LiteralPath $PSScriptRoot) 'SmartQuietCinema-VMware-PCM-Continuity-win-x64.zip' }
+if ($Check -eq 'Endpoint' -and ($CompareOrderedDrain -or $CompareNative -or $Sequence -or $CollectEtw -or $Repeat -ne 1)) { throw 'PCM experiment options require Pcm or Control.' }
+if ($Sequence -and ($CompareOrderedDrain -or $CompareNative)) { throw 'Run the aperiodic native test separately from stereo marker comparisons.' }
+if (!$ProbeArchive) { $ProbeArchive = Join-Path (Split-Path -LiteralPath $PSScriptRoot) 'SmartQuietCinema-VMware-PCM-Native-win-x64.zip' }
 if (!$DriverArchive) { $DriverArchive = Join-Path (Split-Path -LiteralPath $DriverPackage) 'SmartQuietCinema-VMware-Test-GuestVerification.zip' }
 
 $manifestPath = Join-Path $PSScriptRoot 'manifest.json'
@@ -112,7 +171,7 @@ if ($manifest.schemaVersion -ne 1 -or $manifest.package -ne 'SmartQuietCinema VM
 $listed = @{}
 foreach ($record in $manifest.files) {
     $path = $record.path
-    if ($path -cne 'Invoke-VMwareProbeUpdate.ps1' -and $path -notmatch '\AProbe/(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\z' -or
+    if ($path -cnotin 'Invoke-VMwareProbeUpdate.ps1', 'Export-VMwarePcmEvidence.ps1' -and $path -notmatch '\AProbe/(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\z' -or
         $path -match '(?:^|/)\.{1,2}(?:/|$)|\.(pdb|pfx|cer|sys|cat|inf)$') { throw "Disallowed probe payload path: $path" }
     $listed.Add($path, $true)
     $file = Get-Item -LiteralPath (Join-Path $PSScriptRoot $path)
@@ -177,17 +236,25 @@ if ($Check -ne 'Endpoint') {
     $sourceRatesHz = 48000, 44100
     $readers = @('recorder')
     if ($CompareOrderedDrain) { $readers += 'ordered' }
-    foreach ($rate in $sourceRatesHz) {
-        foreach ($reader in $readers) {
-            $case = "$label-$rate-$reader"
-            $commandName = if ($reader -eq 'ordered') { "$command-ordered" } else { $command }
-            $trace = Join-Path $evidence "$case-packets.csv"
-            $result = Invoke-LabProcess $probe @($commandName, $endpointId, "$rate", '--trace', $trace) $evidence $case
-            $result.StdOut | Write-Output
-            Write-Output "$case exit code: $($result.ExitCode). Stderr: $($result.StdErrPath)"
-            if ($result.ExitCode -ne 0 -or ![IO.File]::Exists($trace)) { $failedCases += $case }
+    if ($CompareNative) { $readers += 'native' }
+    if ($Sequence) { $readers = @('sequence') }
+    $session = $null
+    try {
+        if ($CollectEtw) { $session = Start-PcmEtw $evidence }
+        for ($trial = 1; $trial -le $Repeat; $trial++) {
+            foreach ($rate in $sourceRatesHz) {
+                foreach ($reader in $readers) {
+                    $case = "$label-$rate-$reader-r$trial"
+                    $commandName = if ($reader -eq 'recorder') { $command } else { "$command-$reader" }
+                    $trace = Join-Path $evidence "$case-packets.csv"
+                    $result = Invoke-LabProcess $probe @($commandName, $endpointId, "$rate", '--trace', $trace) $evidence $case
+                    $result.StdOut | Write-Output
+                    Write-Output "$case exit code: $($result.ExitCode). Stderr: $($result.StdErrPath)"
+                    if ($result.ExitCode -ne 0 -or ![IO.File]::Exists($trace)) { $failedCases += $case }
+                }
+            }
         }
-    }
+    } finally { if ($session) { Stop-PcmEtw $session $evidence } }
 }
 $after = Invoke-LabProcess $probe @('defaults') $evidence 'defaults-after'
 if ($after.ExitCode -ne 0 -or ($before.StdOut -join "`n") -cne ($after.StdOut -join "`n")) { throw 'The guest playback default snapshot changed or could not be read.' }
