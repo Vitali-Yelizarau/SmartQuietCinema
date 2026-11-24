@@ -29,14 +29,15 @@ internal static class Program
             if (args is ["self-test"]) return SelfTest.Run();
             if (args is ["list"] or ["list", "--diagnostics"]) return ListRenderEndpoints(args.Length == 2);
             if (args is ["defaults"]) return ReadDefaultEndpoints();
-            if (args.Length is 2 or 3 or 5 && args[0] is "probe" or "control" && !string.IsNullOrWhiteSpace(args[1]))
+            if (args.Length is 2 or 3 or 5 && args[0] is "probe" or "control" or "probe-ordered" or "control-ordered" && !string.IsNullOrWhiteSpace(args[1]))
             {
                 int rate = DefaultSourceRateHz;
                 if ((args.Length != 5 || args[3] == "--trace" && !string.IsNullOrWhiteSpace(args[4])) &&
                     (args.Length == 2 || int.TryParse(args[2], NumberStyles.None, CultureInfo.InvariantCulture, out rate) && rate is AlternateSourceRateHz or DefaultSourceRateHz))
-                    return await ProbeAsync(args[1], rate, args[0] == "control", args.Length == 5 ? Path.GetFullPath(args[4]) : null);
+                    return await ProbeAsync(args[1], rate, args[0] is "control" or "control-ordered", args.Length == 5 ? Path.GetFullPath(args[4]) : null,
+                        args[0] is "probe-ordered" or "control-ordered");
             }
-            Console.Error.WriteLine("Usage: VirtualAudioProbe list [--diagnostics] | defaults | self-test | probe|control <endpoint-id> [44100|48000 [--trace <new-csv>]]");
+            Console.Error.WriteLine("Usage: VirtualAudioProbe list [--diagnostics] | defaults | self-test | probe|control|probe-ordered|control-ordered <endpoint-id> [44100|48000 [--trace <new-csv>]]");
             return 2;
         }
         catch (Exception exception) when (exception is COMException or InvalidOperationException or NotSupportedException or ArgumentException or IOException or UnauthorizedAccessException)
@@ -88,8 +89,9 @@ internal static class Program
     /// <param name="sourceRate">The original marker sample rate in Hertz.</param>
     /// <param name="control">Whether the operator explicitly selected a separate nonexperimental control endpoint.</param>
     /// <param name="tracePath">New CSV path for post-capture diagnostics, or null to omit the trace.</param>
+    /// <param name="ordered">Whether to test release-before-query instead of WasapiRecorder's packet scheduling.</param>
     /// <returns>Whether the observed capture contains a valid stereo mix with no reported transport failure.</returns>
-    private static async Task<int> ProbeAsync(string endpointId, int sourceRate, bool control, string? tracePath)
+    private static async Task<int> ProbeAsync(string endpointId, int sourceRate, bool control, string? tracePath, bool ordered)
     {
         using var enumerator = new MMDeviceEnumerator();
         // Compare only opaque IDs from the active render list, before creating any audio client.
@@ -106,7 +108,7 @@ internal static class Program
             if (tracePath is not null && (Path.Exists(tracePath) || !Directory.Exists(Path.GetDirectoryName(tracePath))))
                 throw new IOException("Supply an unused trace path in an existing directory.");
             Console.WriteLine(control ? "Mode: explicitly selected control; not experimental acceptance." : "Mode: hardware-verified experimental endpoint.");
-            return await CollectAsync(endpoint, sourceRate, tracePath);
+            return await CollectAsync(endpoint, sourceRate, tracePath, ordered);
         }
         throw new InvalidOperationException("The requested endpoint is not an active render device. Use 'list' to obtain the experimental endpoint ID.");
     }
@@ -117,14 +119,16 @@ internal static class Program
     /// <param name="endpoint">The verified experimental endpoint or explicitly selected control render device.</param>
     /// <param name="sourceRate">The negotiated-client input rate to request for both markers.</param>
     /// <param name="tracePath">A new file to write after the capture thread stops.</param>
+    /// <param name="ordered">Whether to release each packet before querying the next packet size.</param>
     /// <returns>The validation exit code.</returns>
-    private static async Task<int> CollectAsync(MMDevice endpoint, int sourceRate, string? tracePath)
+    private static async Task<int> CollectAsync(MMDevice endpoint, int sourceRate, string? tracePath, bool ordered)
     {
         const int CaptureCapacitySeconds = 8;
         const int CaptureLeadInMilliseconds = 250;
         const int MarkerOverlapMilliseconds = 2500;
         const int CaptureBufferMilliseconds = 100;
         const int RenderBufferMilliseconds = 200;
+        const int EventWaitBufferCount = 3;
 
         var failures = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
         CaptureBuffer capture;
@@ -133,16 +137,20 @@ internal static class Program
         long captureStart, stopRequest;
         long? firstPlay = null, secondPlay = null;
         double captureLatency;
-        await using (var recorder = new WasapiRecorderBuilder().WithDevice(endpoint).WithLoopbackCapture().WithSharedMode().WithEventSync().WithBufferLength(CaptureBufferMilliseconds).Build())
+        await using (var recorder = ordered ? null : new WasapiRecorderBuilder().WithDevice(endpoint).WithLoopbackCapture().WithSharedMode().WithEventSync().WithBufferLength(CaptureBufferMilliseconds).Build())
+        await using (var orderedRecorder = ordered ? new OrderedLoopbackCapture(endpoint, CaptureBufferMilliseconds) : null)
         {
-            format = recorder.WaveFormat;
+            format = recorder?.WaveFormat ?? orderedRecorder!.WaveFormat;
             capture = new CaptureBuffer(format, CaptureCapacitySeconds, tracePath is not null ? origin : null);
             await using var first = new WasapiPlayerBuilder().WithDevice(endpoint).WithSharedMode().WithEventSync().WithLatency(RenderBufferMilliseconds).Build();
             await using var second = new WasapiPlayerBuilder().WithDevice(endpoint).WithSharedMode().WithEventSync().WithLatency(RenderBufferMilliseconds).Build();
-            recorder.RecordingStopped += (_, eventArgs) => { if (eventArgs.Exception is not null) failures.TrySetResult(eventArgs.Exception); };
+            if (recorder is not null)
+            {
+                recorder.RecordingStopped += (_, eventArgs) => { if (eventArgs.Exception is not null) failures.TrySetResult(eventArgs.Exception); };
+                recorder.DataAvailable += capture.Append;
+            }
             first.PlaybackStopped += (_, eventArgs) => { if (eventArgs.Exception is not null) failures.TrySetResult(eventArgs.Exception); };
             second.PlaybackStopped += (_, eventArgs) => { if (eventArgs.Exception is not null) failures.TrySetResult(eventArgs.Exception); };
-            recorder.DataAvailable += capture.Append;
             first.Init(new PcmMarkers.Source(0, sourceRate));
             second.Init(new PcmMarkers.Source(1, sourceRate));
             Console.WriteLine($"Endpoint: {endpoint.ID} | {endpoint.FriendlyName}");
@@ -151,8 +159,9 @@ internal static class Program
             Console.WriteLine($"Capture: {format.Encoding}, {format.SampleRate} Hz, {format.Channels} channels, {format.BitsPerSample} bits{subtype}");
 
             captureStart = Stopwatch.GetTimestamp() - origin;
-            recorder.StartRecording();
-            captureLatency = recorder.LatencyMilliseconds;
+            if (recorder is not null) recorder.StartRecording();
+            else orderedRecorder!.Start(capture.Append, exception => failures.TrySetResult(exception), EventWaitBufferCount * CaptureBufferMilliseconds);
+            captureLatency = recorder?.LatencyMilliseconds ?? orderedRecorder!.LatencyMilliseconds;
             if (await Task.WhenAny(Task.Delay(CaptureLeadInMilliseconds), failures.Task) != failures.Task)
             {
                 firstPlay = Stopwatch.GetTimestamp() - origin;
@@ -164,10 +173,12 @@ internal static class Program
             stopRequest = Stopwatch.GetTimestamp() - origin;
             first.Stop();
             second.Stop();
-            recorder.StopRecording();
+            recorder?.StopRecording();
+            orderedRecorder?.Stop();
         }
 
         long captureJoined = Stopwatch.GetTimestamp() - origin;
+        Console.WriteLine($"Capture reader: {(ordered ? "ordered drain over AudioCaptureClient" : "WasapiRecorder")}");
         Console.WriteLine($"Scheduling: event-driven shared mode, capture request={CaptureBufferMilliseconds} ms, render requests={RenderBufferMilliseconds} ms, reported capture latency={captureLatency:F3} ms, lead-in/overlap requests={CaptureLeadInMilliseconds}/{MarkerOverlapMilliseconds} ms");
         Console.WriteLine($"Stopwatch: frequency_hz={Stopwatch.Frequency}, origin_ticks={origin}, capture_start_ticks={captureStart}, first_play_ticks={firstPlay}, second_play_ticks={secondPlay}, stop_request_ticks={stopRequest}, joined_ticks={captureJoined}");
         if (tracePath is not null)
@@ -180,9 +191,10 @@ internal static class Program
         Exception? streamFailure = failures.Task.IsCompletedSuccessfully ? await failures.Task : null;
         float[] samples = capture.Decode(out int invalidSamples);
         var result = PcmMarkers.Analyze(samples, format.SampleRate);
-        Console.WriteLine($"Captured frames={capture.Frames}, packets={capture.Packets}, silent frames={capture.SilentFrames}, peak={result.Peak:F6}");
+        Console.WriteLine($"Captured frames={capture.Frames}, packets={capture.Packets}, empty reads={capture.Continuity.EmptyReads}, silent frames={capture.SilentFrames}, peak={result.Peak:F6}");
         PacketContinuity timing = capture.Continuity;
-        Console.WriteLine($"Transport: discontinuities after startup={capture.Discontinuities}, position mismatches={capture.PositionGaps}, timestamp errors={capture.TimestampErrors}, invalid positions={timing.InvalidPositions}");
+        Console.WriteLine($"Transport: discontinuities after startup={capture.Discontinuities}, position mismatches={capture.PositionGaps}, native timestamp-error flags={capture.TimestampErrors}, invalid positions={timing.InvalidPositions}");
+        Console.WriteLine($"QPC observations: regressions={timing.QpcRegressions}, repeated={timing.RepeatedQpc}");
         Console.WriteLine($"Position deltas: forward={timing.ForwardGaps} packets / +{timing.ForwardDeltaFrames} frames, overlap/backward={timing.Overlaps} packets / -{timing.OverlapDeltaFrames} frames");
         Console.WriteLine($"125 ms windows: source A={result.FirstWindows}, source B={result.SecondWindows}, both={result.JointWindows}, longest joint run={result.LongestJointRun}");
         Console.WriteLine($"Windows with the SysVAD default 3000 Hz tone: {result.StockToneWindows}");

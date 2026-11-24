@@ -65,7 +65,7 @@ internal sealed class CaptureBuffer
     }
 
     /// <summary>
-    /// Copies a reported WASAPI packet, preserves silent frames, and counts transport errors and position gaps.
+    /// Copies a nonempty WASAPI packet and keeps an empty read out of PCM and continuity accounting.
     /// A first-packet discontinuity remains in the trace and is excluded from the post-start counter.
     /// </summary>
     /// <param name="packet">The recorder-owned packet, valid only during this callback.</param>
@@ -82,6 +82,7 @@ internal sealed class CaptureBuffer
         int frames = packet.Length / _blockAlign;
         // NAudio projects the native UINT64 fields as long. Keep the original bits for frame and time arithmetic.
         Continuity.Append(frames, (uint)flags, unchecked((ulong)position), unchecked((ulong)qpc), _traceOrigin is long origin ? Stopwatch.GetTimestamp() - origin : 0);
+        if (frames == 0) return;
         Frames += frames;
 
         bool silent = (flags & AudioClientBufferFlags.Silent) != 0;

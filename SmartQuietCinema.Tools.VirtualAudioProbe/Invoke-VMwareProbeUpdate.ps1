@@ -9,20 +9,23 @@ Supply both archive digests and the driver signer thumbprint from the independen
 Exact active MMDevice ID of the guest's existing High Definition Audio Device, explicitly selected for the Control check.
 .PARAMETER EvidenceDirectory
 Unused directory for packet CSV and independent native stdout and stderr. Defaults to a new sibling of the probe ZIP.
+.PARAMETER CompareOrderedDrain
+Runs the original recorder and the release-before-query reader at each requested source rate.
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][ValidateSet('Endpoint', 'Pcm', 'Control')][string]$Check,
-    [Parameter(Mandatory)][string]$ProbeArchive,
+    [string]$ProbeArchive,
     [Parameter(Mandatory)][ValidatePattern('\A[0-9a-fA-F]{64}\z')][string]$ExpectedProbeSha256,
-    [Parameter(Mandatory)][string]$DriverPackage,
-    [Parameter(Mandatory)][string]$DriverArchive,
-    [Parameter(Mandatory)][ValidatePattern('\A[0-9a-fA-F]{64}\z')][string]$ExpectedDriverSha256,
-    [Parameter(Mandatory)][ValidatePattern('\A[0-9a-fA-F]{40}\z')][string]$ExpectedSignerThumbprint,
-    [Parameter(Mandatory)][string]$DevGenPath,
-    [Parameter(Mandatory)][string]$SignToolPath,
+    [string]$DriverPackage = 'C:\Test\SmartQuietCinema-VMware-GuestVerification\Extracted',
+    [string]$DriverArchive,
+    [ValidatePattern('\A[0-9a-fA-F]{64}\z')][string]$ExpectedDriverSha256 = '3063502B790B56D42F890937576D12F98A50BA5BDA8F215C6DB29ADD001CE88F',
+    [ValidatePattern('\A[0-9a-fA-F]{40}\z')][string]$ExpectedSignerThumbprint = 'F5C7AEDFE2F744588C911CE5EF4E3D5EE719FD4A',
+    [string]$DevGenPath,
+    [string]$SignToolPath,
     [string]$ControlEndpointId,
-    [string]$EvidenceDirectory
+    [string]$EvidenceDirectory,
+    [switch]$CompareOrderedDrain
 )
 
 $ErrorActionPreference = 'Stop'
@@ -78,8 +81,27 @@ function Invoke-LabProcess {
     } finally { $process.Dispose() }
 }
 
+function Find-LabTool {
+    <# .SYNOPSIS
+    Uses an explicit path or a unique existing VMware share containing the requested kit binary.
+    #>
+    param([string]$ExplicitPath, [string]$FileName)
+
+    if ($ExplicitPath) { return $ExplicitPath }
+    $sharedRoot = '\\vmware-host\Shared Folders'
+    $candidates = @(Get-ChildItem -LiteralPath $sharedRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+        $file = Join-Path $_.FullName $FileName
+        if ([IO.File]::Exists($file)) { $file }
+    })
+    if ($candidates.Count -eq 1) { return $candidates[0] }
+    throw "Supply the verified read-only guest kit path for $FileName."
+}
+
 if ($Check -eq 'Control' -and [string]::IsNullOrWhiteSpace($ControlEndpointId)) { throw 'Select the existing VMware High Definition Audio Device with -ControlEndpointId.' }
 if ($Check -ne 'Control' -and $ControlEndpointId) { throw '-ControlEndpointId is only valid for the Control check.' }
+if ($Check -eq 'Endpoint' -and $CompareOrderedDrain) { throw '-CompareOrderedDrain requires a PCM check.' }
+if (!$ProbeArchive) { $ProbeArchive = Join-Path (Split-Path -LiteralPath $PSScriptRoot) 'SmartQuietCinema-VMware-PCM-Continuity-win-x64.zip' }
+if (!$DriverArchive) { $DriverArchive = Join-Path (Split-Path -LiteralPath $DriverPackage) 'SmartQuietCinema-VMware-Test-GuestVerification.zip' }
 
 $manifestPath = Join-Path $PSScriptRoot 'manifest.json'
 Assert-ArchiveEntry $ProbeArchive $ExpectedProbeSha256 'manifest.json' $manifestPath
@@ -105,6 +127,8 @@ if (!$listed.ContainsKey($entryPoint)) { throw 'The verified probe executable is
 
 $verifyDriver = Join-Path $DriverPackage 'Scripts\Test-HyperVTestBundle.ps1'
 Assert-ArchiveEntry $DriverArchive $ExpectedDriverSha256 'Scripts/Test-HyperVTestBundle.ps1' $verifyDriver
+$DevGenPath = Find-LabTool $DevGenPath 'devgen.exe'
+$SignToolPath = Find-LabTool $SignToolPath 'signtool.exe'
 $archiveDirectory = (Get-Item -LiteralPath $ProbeArchive).DirectoryName
 if (!$EvidenceDirectory) { $EvidenceDirectory = Join-Path $archiveDirectory ('PcmEvidence-' + [guid]::NewGuid().ToString('N')) }
 $evidence = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($EvidenceDirectory)
@@ -148,18 +172,24 @@ if ($Check -eq 'Control') {
     Write-Output "Operator-selected diagnostic control: $($other[0])"
 }
 
-$failedRates = @()
+$failedCases = @()
 if ($Check -ne 'Endpoint') {
     $sourceRatesHz = 48000, 44100
+    $readers = @('recorder')
+    if ($CompareOrderedDrain) { $readers += 'ordered' }
     foreach ($rate in $sourceRatesHz) {
-        $trace = Join-Path $evidence "$label-$rate-packets.csv"
-        $result = Invoke-LabProcess $probe @($command, $endpointId, "$rate", '--trace', $trace) $evidence "$label-$rate"
-        $result.StdOut | Write-Output
-        Write-Output "$label source $rate Hz exit code: $($result.ExitCode). Stderr: $($result.StdErrPath)"
-        if ($result.ExitCode -ne 0) { $failedRates += $rate }
+        foreach ($reader in $readers) {
+            $case = "$label-$rate-$reader"
+            $commandName = if ($reader -eq 'ordered') { "$command-ordered" } else { $command }
+            $trace = Join-Path $evidence "$case-packets.csv"
+            $result = Invoke-LabProcess $probe @($commandName, $endpointId, "$rate", '--trace', $trace) $evidence $case
+            $result.StdOut | Write-Output
+            Write-Output "$case exit code: $($result.ExitCode). Stderr: $($result.StdErrPath)"
+            if ($result.ExitCode -ne 0 -or ![IO.File]::Exists($trace)) { $failedCases += $case }
+        }
     }
 }
 $after = Invoke-LabProcess $probe @('defaults') $evidence 'defaults-after'
 if ($after.ExitCode -ne 0 -or ($before.StdOut -join "`n") -cne ($after.StdOut -join "`n")) { throw 'The guest playback default snapshot changed or could not be read.' }
 $after.StdOut | Write-Output
-if ($failedRates.Count) { throw "$label PCM validation failed at source rate(s): $($failedRates -join ', ') Hz. Evidence: $evidence" }
+if ($failedCases.Count) { throw "PCM validation failed for: $($failedCases -join ', '). Evidence: $evidence" }

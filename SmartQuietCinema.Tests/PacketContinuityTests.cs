@@ -6,6 +6,74 @@ namespace SmartQuietCinema.Tests;
 /// <summary>Checks packet continuity directly from the WASAPI frame and timestamp contracts, without starting an audio client.</summary>
 public sealed class PacketContinuityTests
 {
+    /// <summary>Replays the first fourteen rows of the experimental 48 kHz trace and preserves its real repeats when empty rows are removed from the timeline.</summary>
+    [Fact]
+    public void ReplaysVmwareExperimentalTraceWithEmptyReadsAndPositionZero()
+    {
+        (int Frames, ulong Position, ulong Qpc, uint Flags)[] packets =
+        [
+            (480, 0, 64929866143, 1), (0, 0, 0, 0), (480, 480, 64929970212, 0), (0, 0, 0, 0), (480, 960, 64930070241, 0),
+            (480, 1440, 64930170387, 0), (0, 0, 0, 0), (480, 1440, 64930170216, 1), (480, 1920, 64930270337, 0), (0, 0, 0, 0),
+            (480, 1920, 64930270413, 1), (480, 2400, 64930370324, 0), (0, 0, 0, 0), (480, 2400, 64930370271, 1)
+        ];
+        var timing = new PacketContinuity(packets.Length);
+        foreach (var packet in packets) timing.Append(packet.Frames, packet.Flags, packet.Position, packet.Qpc, 0);
+
+        Assert.Equal(9, timing.Packets);
+        Assert.Equal(5, timing.EmptyReads);
+        Assert.Equal(3, timing.Discontinuities);
+        Assert.Equal(3, timing.Overlaps);
+        Assert.Equal((UInt128)1440, timing.OverlapDeltaFrames);
+        Assert.Equal(0, timing.ForwardGaps);
+        Assert.Equal(2, timing.QpcRegressions);
+        Assert.Equal(0, timing.RepeatedQpc);
+        Assert.Equal((ulong)0, timing.Trace[2].PreviousPosition);
+        Assert.Null(timing.Trace[1].ExpectedPosition);
+        Assert.Null(timing.Trace[1].QpcDelta);
+        Assert.Equal((Int128)(-171), timing.Trace[7].QpcDelta);
+    }
+
+    /// <summary>Recreates the control's alternating 480-frame packets and empty reads, with and without the one real forward gap.</summary>
+    [Theory]
+    [InlineData(480, 0, 0)]
+    [InlineData(960, 1, 1)]
+    public void AlternatingEmptyReadsLeaveOnlyRealControlGaps(int step, uint flags, int expectedGaps)
+    {
+        var timing = new PacketContinuity(4);
+        timing.Append(480, PacketContinuity.DataDiscontinuity, 0, 100_000, 0);
+        timing.Append(0, 0, 0, 0, 1);
+        timing.Append(480, flags, (ulong)step, 200_000, 2);
+        timing.Append(0, 0, 0, 0, 3);
+
+        Assert.Equal(2, timing.Packets);
+        Assert.Equal(2, timing.EmptyReads);
+        Assert.Equal(expectedGaps, timing.ForwardGaps);
+        Assert.Equal(expectedGaps, timing.Discontinuities);
+        Assert.Equal(0, timing.QpcRegressions);
+        Assert.Equal((Int128)(step - 480), timing.Trace[2].Delta);
+    }
+
+    /// <summary>Separates repeated and backward QPC values from native timestamp flags and ignores undefined metadata even on an initial empty callback.</summary>
+    [Fact]
+    public void EmptyReadsCannotAlterQpcOrConsumeTheStartupPacket()
+    {
+        var timing = new PacketContinuity(7);
+        timing.Append(0, PacketContinuity.TimestampError, 99, 99, 0);
+        timing.Append(480, PacketContinuity.DataDiscontinuity, 0, 70, 1);
+        timing.Append(0, 0, 0, 0, 2);
+        timing.Append(480, 0, 480, 70, 3);
+        timing.Append(480, 0, 960, 69, 4);
+        timing.Append(480, PacketContinuity.TimestampError, 1440, 0, 5);
+        timing.Append(480, 0, 1920, 68, 6);
+
+        Assert.Equal(1, timing.RepeatedQpc);
+        Assert.Equal(1, timing.QpcRegressions);
+        Assert.Equal(1, timing.TimestampErrors);
+        Assert.Equal(0, timing.Discontinuities);
+        Assert.Equal(0, timing.PositionGaps);
+        Assert.Null(timing.Trace[6].QpcDelta);
+    }
+
     /// <summary>Uses variable frame counts and a silent packet to catch regressions that confuse frames with bytes, samples or clock ticks.</summary>
     [Fact]
     public void VariableSizedAndSilentPacketsRemainContinuous()

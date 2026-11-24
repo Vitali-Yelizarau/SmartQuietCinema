@@ -22,7 +22,7 @@ if ($LASTEXITCODE -ne 0 -or $revision -notmatch '\A[0-9a-f]{40,64}\z') { throw '
 $changes = git -C $repo status --porcelain --untracked-files=normal
 if ($LASTEXITCODE -ne 0 -or $changes) { throw 'The update requires a clean Git checkout.' }
 
-$archiveName = 'SmartQuietCinema-VMware-PCM-Diagnostics-win-x64.zip'
+$archiveName = 'SmartQuietCinema-VMware-PCM-Continuity-win-x64.zip'
 $entryPoint = 'Probe/SmartQuietCinema.Tools.VirtualAudioProbe.exe'
 $work = Join-Path $parent ('.sqc-probe-' + [guid]::NewGuid().ToString('N'))
 [void][IO.Directory]::CreateDirectory($work)

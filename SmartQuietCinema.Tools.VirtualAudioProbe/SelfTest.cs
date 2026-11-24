@@ -29,7 +29,8 @@ internal static class SelfTest
             ("PCM24 sign and scaling", () => Decodes(new WaveFormat(48000, 24, 2), [0, 0, 0x40, 0, 0, 0xC0])),
             ("PCM32 sign and scaling", () => Decodes(new WaveFormat(48000, 32, 2), [0, 0, 0, 0x40, 0, 0, 0, 0xC0])),
             ("IEEE float sign and scaling", () => Decodes(WaveFormat.CreateIeeeFloatWaveFormat(48000, 2), MemoryMarshal.AsBytes<float>([0.5f, -0.5f]))),
-            ("Silence, flow flags, and packet positions are counted", TrackPackets)
+            ("Silence, flow flags, and packet positions are counted", TrackPackets),
+            ("Empty callbacks preserve PCM counts and packet continuity", TrackEmptyReads)
         };
 
         int passed = 0;
@@ -121,5 +122,16 @@ internal static class SelfTest
         capture.Append([0, 0, 0, 0], AudioClientBufferFlags.TimestampError, 1000);
         return capture is { Frames: 3, Packets: 3, SilentFrames: 1, Discontinuities: 1, PositionGaps: 1, TimestampErrors: 1 } &&
             capture.Decode(out _).AsSpan(0, 2).SequenceEqual([0f, 0f]);
+    }
+
+    /// <summary>Replays an empty span between real WASAPI spans to catch regressions in the capture callback and PCM accounting.</summary>
+    private static bool TrackEmptyReads()
+    {
+        var capture = new CaptureBuffer(new WaveFormat(48000, 16, 2), maximumSeconds: 1, traceOrigin: 0);
+        capture.Append([0, 0x40, 0, 0xC0], AudioClientBufferFlags.DataDiscontinuity, 0, 10000);
+        capture.Append([], AudioClientBufferFlags.None, 0, 0);
+        capture.Append([0, 0x40, 0, 0xC0], AudioClientBufferFlags.None, 1, 10208);
+        return capture is { Packets: 2, Frames: 2, Discontinuities: 0, PositionGaps: 0 } && capture.Continuity.EmptyReads == 1 &&
+            capture.Continuity.QpcRegressions == 0 && capture.Decode(out int invalid).AsSpan().SequenceEqual([0.5f, -0.5f, 0.5f, -0.5f]) && invalid == 0;
     }
 }
