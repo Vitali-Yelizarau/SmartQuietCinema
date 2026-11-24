@@ -6,7 +6,8 @@
 | --- | --- |
 | Confirmed on the build host | Debug x64 build, INF validation, and unsigned catalog generation for the actual package. SysVAD v6 is prepared from the pinned revision. User-mode mocks cover adapter ownership and shutdown. |
 | Prepared for the guest | Package signing and trust checks, checkpoint and dump collection, and the five guest tests below. |
-| Not yet validated | Loading under the chosen guest's Code Integrity policy, endpoint creation, PCM delivered through the Windows Audio Engine, real PnP teardown, and Driver Verifier. |
+| Confirmed in the Windows 11 x64 VMware guest | The test-signed driver installed as `oem8.inf`. `SmartQuietCinemaVirtualAudio` was Running, the PnP devnode was OK with problem code 0, the experimental render endpoint was present, and all three default playback roles were unchanged. The bundled probe passed its 17 synthetic cases but misclassified the endpoint. |
+| Not yet validated | Live PCM delivered through the Windows Audio Engine, real PnP teardown, and Driver Verifier. The corrected user-mode probe still needs a run in this guest. |
 | Known limitations | The driver exposes an experimental render-only endpoint. The probe measures recognizable stereo content and transport integrity. Bit-exact output is outside that probe's checks. |
 | Installation blockers | A package accepted by the guest, verified signatures and hashes, a recoverable isolated guest, and explicit authorization for that guest's installation. An unsigned package is for offline review. |
 
@@ -82,6 +83,8 @@ Use the official Microsoft WDK and SDK under the lab's license. For the verified
 | `SignTool.exe` | Windows SDK | `bin\10.0.28000.0\x64\signtool.exe` |
 
 Obtain the official EWDK image on a connected machine and attach it to the offline guest as CD/DVD media for authorized lab use. EWDK includes the SDK, WDK and build tools. Microsoft lists .NET Framework 4.7.2 as the minimum for its build environment. Find the executables under the mounted image's Windows Kits tree; the ISO layout was not inspected for this run. Verify both binaries have valid Microsoft Authenticode signatures before use. Keep DevGen with the official kit because Microsoft prohibits redistribution. The bundle leaves both kit tools external. Windows supplies PnPUtil. The probe, Test Bench and optional MAUI publish carry their own .NET runtime. [DevGen terms and usage](https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/devgen-command-syntax) · [Exact kit release and EWDK download](https://learn.microsoft.com/en-us/windows-hardware/drivers/other-wdk-downloads) · [EWDK prerequisites](https://learn.microsoft.com/en-us/windows-hardware/drivers/download-the-wdk)
+
+The operator successfully ran `DevGen.exe` and `SignTool.exe` in the offline VMware guest directly from authorized read-only VMware shares pointing to the corresponding installed WDK and SDK x64 directories. Those existing shares can be used as the tool paths for this run. The guest verification script still checks the Microsoft signatures. Keep those tools outside the transfer archives.
 
 ### Offline transfer and integrity checks
 
@@ -171,6 +174,13 @@ Import-Certificate -FilePath $publicCert -CertStoreLocation Cert:\LocalMachine\R
 Import-Certificate -FilePath $publicCert -CertStoreLocation Cert:\LocalMachine\TrustedPublisher -ErrorAction Stop
 ```
 
+The first VMware guest did not initially expose `LocalMachine\TrustedPublisher`. The operator successfully installed the same pinned public certificate using the following command in the elevated **guest** session. Use it when that store is missing during guest setup. The existing VMware run has already completed this step. [Certutil store commands](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/certutil)
+
+```powershell
+certutil.exe -f -addstore TrustedPublisher $publicCert
+if ($LASTEXITCODE -ne 0) { throw 'Guest TrustedPublisher import failed.' }
+```
+
 After any separately authorized boot-policy adjustment and guest restart, confirm the current boot entry shows `testsigning Yes`. If the boot option is protected or the guest rejects the embedded signature with Memory Integrity active, stop and record the guest policy and Code Integrity events. Take a second checkpoint after guest policy and dump setup, before installing the package. [Loading test-signed code](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/the-testsigning-boot-configuration-option) · [Test certificate installation](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/installing-a-test-certificate-on-a-test-computer) · [Preproduction signing](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/preproduction-driver-signing-and-install)
 
 ## Test 1 — Driver load
@@ -227,6 +237,44 @@ sc.exe query SmartQuietCinemaVirtualAudio
 
 If creation succeeds and binding fails, keep the instance ID for precise cleanup. Stop the trial if there is an unexpected default-endpoint change, wrong binding, problem code, or security-policy error. [DevGen ROOT device syntax](https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/devgen-command-syntax) · [PnPUtil command syntax](https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/pnputil-command-syntax) · [SetupAPI device logs](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/setupapi-device-installation-log-entries)
 
+## Continue the existing VMware run with the probe update
+
+The old probe required `PKEY_Device_InstanceId` in the MMDevice property store as its only way to reach the PnP tree. The key itself matched the SDK, but the read returned no value on four active render endpoints checked on the build host. The old code returned before calling Configuration Manager. The guest evidence identified the software devnode `SWD\MMDEVAPI\{0.0.0.00000000}.{230D41D0-1363-46A1-82FD-52807ECE0923}` with hardware ID `MMDEVAPI\AudioEndpoints`. Its `DEVPKEY_Device_Parent` identified the DevGen `ROOT\DEVGEN\{D5697EC0-5FAE-CB4C-AD7A-0D47A6EB58DA}` node with the exact experimental hardware ID. The guest did not record a separate read of the old MMDevice property.
+
+The correction prefixes `SWD\MMDEVAPI\` to the complete opaque MMDevice ID, a device-instance naming convention observed on the tested Windows 11 systems. The probe neither parses the ID's internal parts nor accepts a friendly name as identity. It requires a present software devnode with the expected endpoint hardware ID, then uses `CM_Get_Parent` and looks for the exact experimental hardware ID, using ordinal case-insensitive comparison. The resolver uses Configuration Manager directly. An independent host check using `SetupDiOpenDeviceInfoW` and `SetupDiGetDevicePropertyW` found the same devnodes and parent IDs on all four host endpoints. The SDK `DEVPKEY_Device_HardwareIds` has type `DEVPROP_TYPE_STRING_LIST`. A null-buffer call supplies the byte count, and the second call must return the full double-NUL-terminated UTF-16 list. The host observed `CR_BUFFER_SMALL` (`0x1A`) during sizing and `CR_SUCCESS` (`0x0`) for locating, reading and finding parents. Malformed or unresolved identities fail closed. `list --diagnostics` and rejected `probe` requests identify the failing native operation and report `CONFIGRET` codes where available. [IMMDevice endpoint IDs](https://learn.microsoft.com/en-us/windows/win32/api/mmdeviceapi/nf-mmdeviceapi-immdevice-getid) · [Device property call](https://learn.microsoft.com/en-us/windows/win32/api/cfgmgr32/nf-cfgmgr32-cm_get_devnode_propertyw) · [Parent property](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/devpkey-device-parent)
+
+Build the user-mode ZIP from a clean checkout if another copy is needed. The publisher builds only VirtualAudioProbe, verifies each ZIP member and emits a SHA-256 sidecar and manifest.
+
+```powershell
+$output = Read-Host 'Unused output directory under an existing host directory'
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File '.\SmartQuietCinema.Tools.VirtualAudioProbe\New-VMwareProbeUpdate.ps1' -OutputDirectory $output
+```
+
+Place only the update ZIP and sidecar in the existing VMware share. Copy both into a new guest-local directory. Use the independently provided update SHA-256 and the original driver ZIP SHA-256 and certificate thumbprint from the first handoff. Keep the original ZIP, its extraction, and the current device installation. Do not copy update files into the original extraction. The update verifies its extracted files and calls the original package's verified `Test-HyperVTestBundle.ps1` with `-RequireDriverLab` before running the updated probe. The old probe's synthetic test inside that check still runs as before. The update runner performs the endpoint and PCM steps in place of the old `04-VerifyEndpoint.ps1` and its live PCM follow-up.
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$share = Join-Path '\\vmware-host\Shared Folders' (Read-Host 'Existing transfer share name')
+$target = Join-Path 'C:\Test' ('SmartQuietCinema-Probe-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $target
+$name = 'SmartQuietCinema-VMware-Probe-Update-win-x64.zip'
+Copy-Item -LiteralPath (Join-Path $share $name), (Join-Path $share "$name.sha256") -Destination $target
+$updateZip = Join-Path $target $name
+$expectedUpdate = Read-Host 'Independently supplied probe update SHA-256'
+if ($expectedUpdate -notmatch '\A[0-9a-fA-F]{64}\z' -or (Get-FileHash -LiteralPath $updateZip -Algorithm SHA256).Hash -ne $expectedUpdate -or (Get-Content -LiteralPath "$updateZip.sha256" -Raw).Trim().Split(' ')[0] -ne $expectedUpdate) { throw 'Probe update archive digest mismatch.' }
+$update = Join-Path $target 'Extracted'
+Expand-Archive -LiteralPath $updateZip -DestinationPath $update
+$verifiedArgs = @{ ProbeArchive = $updateZip; ExpectedProbeSha256 = $expectedUpdate; DriverPackage = (Read-Host 'Existing signed driver extraction'); DriverArchive = (Read-Host 'Original signed driver ZIP'); ExpectedDriverSha256 = (Read-Host 'Original independently supplied driver ZIP SHA-256'); ExpectedSignerThumbprint = (Read-Host 'Original independently supplied signer thumbprint'); DevGenPath = (Read-Host 'Full path to DevGen.exe'); SignToolPath = (Read-Host 'Full path to SignTool.exe') }
+$runner = Join-Path $update 'Invoke-VMwareProbeUpdate.ps1'
+& $runner -Check Endpoint @verifiedArgs
+```
+
+After exactly one experimental endpoint is verified, close other clients targeting that endpoint and run the PCM check. Each mode compares all playback defaults before and after the run. Keep the endpoint and both PCM-rate reports outside either extraction. If either rate fails, preserve that output and the capture format before proceeding to PnP tests.
+
+```powershell
+& $runner -Check Pcm @verifiedArgs
+```
+
 ## Test 2 — Virtual endpoint
 
 Use the self-contained probe from the verified extraction. Run these commands before and after installation when taking the defaults and endpoint inventory.
@@ -234,7 +282,7 @@ Use the self-contained probe from the verified extraction. Run these commands be
 ```powershell
 & $probe self-test
 & $probe defaults
-& $probe list
+& $probe list --diagnostics
 ```
 
 Verify the defaults match the pre-install snapshot verbatim and select exactly one entry marked `SmartQuietCinema experiment`. Save its opaque MMDevice render ID. Inspect the endpoint's supported/default formats in the Windows Sound control panel. Source advertises stereo PCM16 at 44,100 and 48,000 Hz. Windows shared mode may negotiate another WASAPI representation. Establish that client initialization and stream start work with the first targeted `probe` run below. Keep its actual negotiated format in the run record even when marker validation fails.

@@ -22,6 +22,7 @@
   <ItemGroup>
     <Using Include="Xunit" />
     <Compile Include="..\SmartQuietCinema.Platform.Windows\Capture\WindowsSampleStorage.cs" Link="WindowsSampleStorage.cs" />
+    <Compile Include="..\SmartQuietCinema.Tools.VirtualAudioProbe\EndpointIdentity.cs" Link="EndpointIdentity.cs" />
   </ItemGroup>
 
 </Project>

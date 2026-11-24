@@ -26,7 +26,7 @@ internal static class Program
         try
         {
             if (args is ["self-test"]) return SelfTest.Run();
-            if (args is ["list"]) return ListRenderEndpoints();
+            if (args is ["list"] or ["list", "--diagnostics"]) return ListRenderEndpoints(args.Length == 2);
             if (args is ["defaults"]) return ReadDefaultEndpoints();
             if (args.Length is 2 or 3 && args[0] == "probe" && !string.IsNullOrWhiteSpace(args[1]))
             {
@@ -34,7 +34,7 @@ internal static class Program
                 if (args.Length == 2 || int.TryParse(args[2], NumberStyles.None, CultureInfo.InvariantCulture, out rate) && rate is AlternateSourceRateHz or DefaultSourceRateHz)
                     return await ProbeAsync(args[1], rate);
             }
-            Console.Error.WriteLine("Usage: VirtualAudioProbe list | defaults | self-test | probe <endpoint-id> [44100|48000]");
+            Console.Error.WriteLine("Usage: VirtualAudioProbe list [--diagnostics] | defaults | self-test | probe <endpoint-id> [44100|48000]");
             return 2;
         }
         catch (Exception exception) when (exception is COMException or InvalidOperationException or NotSupportedException or ArgumentException)
@@ -58,17 +58,22 @@ internal static class Program
         return 0;
     }
 
-    /// <summary>Lists active render endpoints and marks devices with the experimental hardware identity.</summary>
+    /// <summary>Lists active render endpoints, labels hardware identity matches, and optionally reports rejection details.</summary>
+    /// <param name="includeDiagnostics">Whether to report the native operation or identity check that rejected each endpoint.</param>
     /// <returns>A successful read-only enumeration status.</returns>
-    private static int ListRenderEndpoints()
+    private static int ListRenderEndpoints(bool includeDiagnostics)
     {
         using var enumerator = new MMDeviceEnumerator();
         using var endpoints = enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
         for (int i = 0; i < endpoints.Count; i++)
         {
             using var endpoint = endpoints[i];
-            string kind = EndpointIdentity.IsExpected(endpoint) ? "SmartQuietCinema experiment" : "other render endpoint";
-            Console.WriteLine($"{endpoint.ID}\t{endpoint.FriendlyName}\t[{kind}]");
+            string id = endpoint.ID;
+            bool expected = EndpointIdentity.IsExpected(id, out string diagnostic);
+            string kind = expected ? "SmartQuietCinema experiment" : "other render endpoint";
+            string friendlyName = endpoint.FriendlyName.Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ');
+            Console.WriteLine($"{id}\t{friendlyName}\t[{kind}]");
+            if (!expected && includeDiagnostics) Console.WriteLine($"  Identity {id}: {diagnostic}");
         }
         if (endpoints.Count == 0) Console.WriteLine("No active render endpoints.");
         return 0;
@@ -89,8 +94,8 @@ internal static class Program
         {
             using var endpoint = endpoints[i];
             if (!string.Equals(endpoint.ID, endpointId, StringComparison.OrdinalIgnoreCase)) continue;
-            if (!EndpointIdentity.IsExpected(endpoint))
-                throw new InvalidOperationException("The selected endpoint does not have the SmartQuietCinema experimental adapter identity.");
+            if (!EndpointIdentity.IsExpected(endpoint.ID, out string diagnostic))
+                throw new InvalidOperationException($"The selected endpoint does not have the SmartQuietCinema experimental adapter identity. {diagnostic}");
 
             return await CollectAsync(endpoint, sourceRate);
         }
