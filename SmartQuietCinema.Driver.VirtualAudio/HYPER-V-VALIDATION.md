@@ -6,8 +6,8 @@
 | --- | --- |
 | Confirmed on the build host | Debug x64 build, INF validation, and unsigned catalog generation for the actual package. SysVAD v6 is prepared from the pinned revision. User-mode mocks cover adapter ownership and shutdown. |
 | Prepared for the guest | Package signing and trust checks, checkpoint and dump collection, and the five guest tests below. |
-| Confirmed in the Windows 11 x64 VMware guest | The test-signed driver installed as `oem8.inf`. `SmartQuietCinemaVirtualAudio` was Running, the PnP devnode was OK with problem code 0, the experimental render endpoint was present, and all three default playback roles were unchanged. The bundled probe passed its 17 synthetic cases but misclassified the endpoint. |
-| Not yet validated | Live PCM delivered through the Windows Audio Engine, real PnP teardown, and Driver Verifier. The corrected user-mode probe still needs a run in this guest. |
+| Confirmed in the Windows 11 x64 VMware guest | The test-signed driver installed as `oem8.inf`. `SmartQuietCinemaVirtualAudio` was Running and the PnP devnode was OK with problem code 0. The corrected user-mode probe identified the experimental endpoint with exit 0. Loopback captured both simultaneous stereo markers at both source rates. All three default playback roles were unchanged. |
+| Failed or pending | Both live PCM runs failed continuity. Packet-level observations and the VMware High Definition Audio Device control are pending. Real PnP teardown and Driver Verifier are not yet validated. |
 | Known limitations | The driver exposes an experimental render-only endpoint. The probe measures recognizable stereo content and transport integrity. Bit-exact output is outside that probe's checks. |
 | Installation blockers | A package accepted by the guest, verified signatures and hashes, a recoverable isolated guest, and explicit authorization for that guest's installation. An unsigned package is for offline review. |
 
@@ -250,30 +250,40 @@ $output = Read-Host 'Unused output directory under an existing host directory'
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File '.\SmartQuietCinema.Tools.VirtualAudioProbe\New-VMwareProbeUpdate.ps1' -OutputDirectory $output
 ```
 
-Place only the update ZIP and sidecar in the existing VMware share. Copy both into a new guest-local directory. Use the independently provided update SHA-256 and the original driver ZIP SHA-256 and certificate thumbprint from the first handoff. Keep the original ZIP, its extraction, and the current device installation. Do not copy update files into the original extraction. The update verifies its extracted files and calls the original package's verified `Test-HyperVTestBundle.ps1` with `-RequireDriverLab` before running the updated probe. The old probe's synthetic test inside that check still runs as before. The update runner performs the endpoint and PCM steps in place of the old `04-VerifyEndpoint.ps1` and its live PCM follow-up.
+Place the diagnostics ZIP, its `.sha256` sidecar and the transfer script in the existing VMware share. Verify the standalone transfer script against the independently supplied script digest. Use the independently supplied archive digest to copy and extract the ZIP to a new guest-local directory. Keep the original ZIP, its extraction and the current installed device. The update anchors the existing driver verification script to the original archive and calls it with `-RequireDriverLab` before running the updated probe. This includes the original probe smoke test and the original signature, catalog and payload checks.
 
 ```powershell
-$ErrorActionPreference = 'Stop'
-$share = Join-Path '\\vmware-host\Shared Folders' (Read-Host 'Existing transfer share name')
-$target = Join-Path 'C:\Test' ('SmartQuietCinema-Probe-' + [guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path $target
-$name = 'SmartQuietCinema-VMware-Probe-Update-win-x64.zip'
-Copy-Item -LiteralPath (Join-Path $share $name), (Join-Path $share "$name.sha256") -Destination $target
-$updateZip = Join-Path $target $name
-$expectedUpdate = Read-Host 'Independently supplied probe update SHA-256'
-if ($expectedUpdate -notmatch '\A[0-9a-fA-F]{64}\z' -or (Get-FileHash -LiteralPath $updateZip -Algorithm SHA256).Hash -ne $expectedUpdate -or (Get-Content -LiteralPath "$updateZip.sha256" -Raw).Trim().Split(' ')[0] -ne $expectedUpdate) { throw 'Probe update archive digest mismatch.' }
-$update = Join-Path $target 'Extracted'
-Expand-Archive -LiteralPath $updateZip -DestinationPath $update
-$verifiedArgs = @{ ProbeArchive = $updateZip; ExpectedProbeSha256 = $expectedUpdate; DriverPackage = (Read-Host 'Existing signed driver extraction'); DriverArchive = (Read-Host 'Original signed driver ZIP'); ExpectedDriverSha256 = (Read-Host 'Original independently supplied driver ZIP SHA-256'); ExpectedSignerThumbprint = (Read-Host 'Original independently supplied signer thumbprint'); DevGenPath = (Read-Host 'Full path to DevGen.exe'); SignToolPath = (Read-Host 'Full path to SignTool.exe') }
-$runner = Join-Path $update 'Invoke-VMwareProbeUpdate.ps1'
-& $runner -Check Endpoint @verifiedArgs
+$copy = Join-Path (Join-Path '\\vmware-host\Shared Folders' (Read-Host 'Existing transfer share name')) 'Copy-VMwarePcmProbeUpdate.ps1'; if ((Get-FileHash -LiteralPath $copy -Algorithm SHA256).Hash -ne (Read-Host 'Independent transfer script SHA-256')) { throw 'Unexpected transfer script.' }; powershell.exe -NoProfile -ExecutionPolicy Bypass -File $copy -SharePath (Split-Path -LiteralPath $copy) -ExpectedProbeSha256 (Read-Host 'Independent diagnostics ZIP SHA-256'); if ($LASTEXITCODE -ne 0) { throw 'Transfer failed.' }
 ```
 
-After exactly one experimental endpoint is verified, close other clients targeting that endpoint and run the PCM check. Each mode compares all playback defaults before and after the run. Keep the endpoint and both PCM-rate reports outside either extraction. If either rate fails, preserve that output and the capture format before proceeding to PnP tests.
+Use the printed path to the extracted runner and the path to the verified ZIP. Each check prompts for remaining required paths when invoked interactively. Use the first handoff's driver digest and signer thumbprint. Keep DevGen and SignTool on the already verified read-only kit shares. Close other apps playing on the selected devices. Run the experiment first. The runner verifies exactly one experimental endpoint via hardware identity, then tests both source rates even when the first rate returns failure.
 
 ```powershell
-& $runner -Check Pcm @verifiedArgs
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Read-Host 'Guest runner path from transfer') -Check Pcm; if ($LASTEXITCODE -ne 0) { throw 'Experimental PCM failed. Keep both rate reports.' }
 ```
+
+Run the separate control using the exact ID of the existing VMware High Definition Audio Device shown in the endpoint inventory. Copy the ID from that inventory. The control command requires a separate active render endpoint, never chooses a default endpoint on the operator's behalf, and cannot count as experimental acceptance. It uses the same two stereo sources, timing, event-driven capture, and acceptance checks. Keep the current default roles. The runner checks all three role IDs before and after each run and writes logs and CSVs to a new directory outside the extracted packages.
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Read-Host 'Guest runner path from transfer') -Check Control -ControlEndpointId (Read-Host 'Exact VMware High Definition Audio Device MMDevice ID'); if ($LASTEXITCODE -ne 0) { throw 'Control PCM failed. Keep both rate reports.' }
+```
+
+Windows PowerShell 5.1 can surface native stderr as `NativeCommandError` when streams are merged under `$ErrorActionPreference = 'Stop'`. The original verifier deliberately calls the probe with an invalid command as a smoke test, so its usage line on stderr can accompany a successful verifier exit. The diagnostics runner launches processes with separate stdout and stderr files and uses each process's exit code. A Windows PowerShell 5.1 regression test exercised a benign stderr line with both zero and nonzero exit codes. Nonzero results remain failures. Retain both streams and `*-packets.csv` from each run.
+
+### VMware live continuity evidence
+
+Both runs negotiated `WAVEFORMATEXTENSIBLE` stereo IEEE float32 at 48,000 Hz. Both gave 24 joint 125 ms marker windows (A=24, B=24), a longest joint run of 24, peak 0.160000, zero silent frames and zero stock-tone windows. The 44,100 Hz source run therefore exercised shared-mode conversion. The old output used one combined failure message even though marker detection passed.
+
+| Source rate | Frames | Packets | Post-start discontinuity flags | Position mismatches | Timestamp-error flags | Exit |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 48,000 Hz | 144,960 | 554 | 53 | 503 | 0 | 1 |
+| 44,100 Hz | 145,440 | 570 | 61 | 533 | 0 | 1 |
+
+`IAudioCaptureClient::GetBuffer` reports an unsigned frame count and unsigned 64-bit positions for the first frame. QPC is already converted to 100 ns units. NAudio 3.3.0 passes the native flags and position bits through its callback, and the span length is the native frame count times block alignment in bytes. The old probe computed the correct expected position for ordinary valid values but counted both signs as gaps and discarded QPC. The new CSV records raw flags and timing, actual and expected positions, signed frame deltas, and callback arrival timing. Positive means the reported position advanced beyond the expected position. Negative means the packet started before the expected position. Both still fail acceptance and neither alone establishes sample loss or duplication. The trace preserves startup flags and unreliable timestamps. Post-start flags or explicit timestamp errors still fail independently. The trace and console report distinguish stream errors and data storage failures from marker and position results. Raw PCM is not written by this diagnostic. [GetBuffer contract](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudiocaptureclient-getbuffer) · [Buffer flags](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/ne-audioclient-_audclnt_bufferflags)
+
+The experiment keeps the original 100 ms capture and 200 ms render requests, shared event synchronization, 250 ms lead-in and 2,500 ms requested overlap. The NAudio recorder waits for an event or a timeout of three capture-buffer requests and loops on `GetNextPacketSize` on its capture thread. It queries the next size before the current lease is disposed. This is an ordering detail to investigate if the traces suggest delayed drains; its effect has not been demonstrated. The player's separate workers use event synchronization. The probe copies packet PCM into preallocated storage and only stores value records in the callback. CSV formatting and I/O occur after shutdown. Compare arrival-time clusters, frame-count distributions and QPC deltas after factoring in the logged capture, play and stop requests. Compare the unflagged steady-state packets on both devices separately from the first packet and stream transitions. [Pinned NAudio recorder](https://github.com/naudio/NAudio/blob/4f8889e2bd34c3978a25652c6c172fa1502ccba3/src/NAudio.Wasapi/WasapiRecorder.cs) · [GetNextPacketSize contract](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudiocaptureclient-getnextpacketsize)
+
+The adapted WaveRT stream starts a 1 ms timer in `RUN` when notifications are configured. `TimerNotifyRT` uses elapsed QPC and the notification interval, advances the packet counter once per qualifying callback, and records a PortCls underrun event if the write position has not updated. `UpdatePosition` carries both fractional milliseconds and fractional bytes and keeps separate linear and cyclic positions. `PAUSE` and terminal branches cancel the timer while position state is protected. Notification coalescing, position quantization and underruns are candidates to correlate with the two device traces and existing ETW evidence. The aggregate results do not establish a driver defect or justify a new driver build.
 
 ## Test 2 — Virtual endpoint
 

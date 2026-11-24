@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Diagnostics;
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
 
@@ -21,13 +22,14 @@ internal sealed class CaptureBuffer
     private readonly WaveFormat _format;
     private readonly bool _float;
     private int _length;
-    private long? _nextPosition;
+    private readonly long? _traceOrigin;
+    public PacketContinuity Continuity { get; }
     public long Frames { get; private set; }
     public long SilentFrames { get; private set; }
-    public int Packets { get; private set; }
-    public int Discontinuities { get; private set; }
-    public int PositionGaps { get; private set; }
-    public int TimestampErrors { get; private set; }
+    public int Packets => Continuity.Packets;
+    public int Discontinuities => Continuity.Discontinuities;
+    public int PositionGaps => Continuity.PositionGaps;
+    public int TimestampErrors => Continuity.TimestampErrors;
     public bool InvalidPacket { get; private set; }
     public bool Overflow { get; private set; }
 
@@ -36,10 +38,12 @@ internal sealed class CaptureBuffer
     /// </summary>
     /// <param name="format">The recorder's negotiated capture format.</param>
     /// <param name="maximumSeconds">Upper bound on stored audio, including startup time.</param>
-    public CaptureBuffer(WaveFormat format, int maximumSeconds)
+    /// <param name="traceOrigin">Run start in Stopwatch ticks, or null to collect counters without a packet trace.</param>
+    public CaptureBuffer(WaveFormat format, int maximumSeconds, long? traceOrigin = null)
     {
         const int MinimumSampleRateHz = 8000;
         const int MaximumSampleRateHz = 192000;
+        const int MaximumTracePackets = 32768;
 
         bool pcm = format.Encoding == WaveFormatEncoding.Pcm;
         _float = format.Encoding == WaveFormatEncoding.IeeeFloat;
@@ -56,16 +60,19 @@ internal sealed class CaptureBuffer
         _format = format;
         _blockAlign = format.BlockAlign;
         _bytes = new byte[checked(format.SampleRate * maximumSeconds * _blockAlign)];
+        _traceOrigin = traceOrigin;
+        Continuity = new(traceOrigin.HasValue ? MaximumTracePackets : 0);
     }
 
     /// <summary>
     /// Copies a reported WASAPI packet, preserves silent frames, and counts transport errors and position gaps.
-    /// A first-packet discontinuity is treated as startup rather than loss inside the capture.
+    /// A first-packet discontinuity remains in the trace and is excluded from the post-start counter.
     /// </summary>
     /// <param name="packet">The recorder-owned packet, valid only during this callback.</param>
     /// <param name="flags">WASAPI packet flags.</param>
     /// <param name="position">Device position of the packet's first frame.</param>
-    public void Append(ReadOnlySpan<byte> packet, AudioClientBufferFlags flags, long position)
+    /// <param name="qpc">Raw QPC value in 100-nanosecond units, as projected by NAudio.</param>
+    public void Append(ReadOnlySpan<byte> packet, AudioClientBufferFlags flags, long position, long qpc = 0)
     {
         if (packet.Length % _blockAlign != 0)
         {
@@ -73,19 +80,9 @@ internal sealed class CaptureBuffer
             return;
         }
         int frames = packet.Length / _blockAlign;
-        if (Packets > 0 && (flags & AudioClientBufferFlags.DataDiscontinuity) != 0) Discontinuities++;
-        Packets++;
+        // NAudio projects the native UINT64 fields as long. Keep the original bits for frame and time arithmetic.
+        Continuity.Append(frames, (uint)flags, unchecked((ulong)position), unchecked((ulong)qpc), _traceOrigin is long origin ? Stopwatch.GetTimestamp() - origin : 0);
         Frames += frames;
-        if ((flags & AudioClientBufferFlags.TimestampError) != 0)
-        {
-            TimestampErrors++;
-            _nextPosition = null;
-        }
-        else
-        {
-            if (_nextPosition is long expected && expected != position) PositionGaps++;
-            _nextPosition = position + frames;
-        }
 
         bool silent = (flags & AudioClientBufferFlags.Silent) != 0;
         if (silent) SilentFrames += frames;

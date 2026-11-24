@@ -171,7 +171,7 @@ private static double CalculateCoefficient(double milliseconds, int sampleRate)
 
 ## Current Project Stage
 
-- The latest verified `SmartQuietCinema.Tests` run passed all 157 tests.
+- The latest verified `SmartQuietCinema.Tests` run passed all 163 tests.
 - `LookaheadTransientController` implements transient hold, adaptive recovery, and lookahead-assisted quiet gain. The Windows capture path and Offline Audio Test Bench use the original frames to guide quiet gain.
 - The processed signal is used for diagnostics, A/B recording, and offline comparisons. Playback of processed system audio is not implemented yet.
-- The experimental virtual audio driver installed and started in the Windows 11 x64 VMware lab with all playback default roles preserved. Live PCM delivery remains unverified.
+- In the Windows 11 x64 VMware lab the experimental virtual audio driver started, the updated probe identified its render endpoint, and WASAPI loopback detected both stereo marker streams at both source rates. Continuity acceptance failed at both rates. All playback default roles were preserved.

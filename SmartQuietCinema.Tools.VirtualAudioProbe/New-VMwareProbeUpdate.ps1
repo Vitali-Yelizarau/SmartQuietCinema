@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-Publishes a self-contained Windows x64 probe ZIP without building or copying a driver.
+Publishes a self-contained Windows x64 PCM diagnostics ZIP without building or copying a driver.
 .PARAMETER OutputDirectory
 An unused directory under an existing parent. The archive and checksum are published together.
 .PARAMETER NuGetSource
@@ -22,7 +22,7 @@ if ($LASTEXITCODE -ne 0 -or $revision -notmatch '\A[0-9a-f]{40,64}\z') { throw '
 $changes = git -C $repo status --porcelain --untracked-files=normal
 if ($LASTEXITCODE -ne 0 -or $changes) { throw 'The update requires a clean Git checkout.' }
 
-$archiveName = 'SmartQuietCinema-VMware-Probe-Update-win-x64.zip'
+$archiveName = 'SmartQuietCinema-VMware-PCM-Diagnostics-win-x64.zip'
 $entryPoint = 'Probe/SmartQuietCinema.Tools.VirtualAudioProbe.exe'
 $work = Join-Path $parent ('.sqc-probe-' + [guid]::NewGuid().ToString('N'))
 [void][IO.Directory]::CreateDirectory($work)
@@ -73,6 +73,11 @@ try {
     $sha256 = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash
     "$sha256  $archiveName" | Set-Content -LiteralPath "$zipPath.sha256" -Encoding Ascii
     [IO.File]::Copy($manifestPath, (Join-Path $publish 'manifest.json'))
+    $transferName = 'Copy-VMwarePcmProbeUpdate.ps1'
+    $transferPath = Join-Path $publish $transferName
+    [IO.File]::Copy((Join-Path $PSScriptRoot $transferName), $transferPath)
+    $transferHash = (Get-FileHash -LiteralPath $transferPath -Algorithm SHA256).Hash
+    "$transferHash  $transferName" | Set-Content -LiteralPath "$transferPath.sha256" -Encoding Ascii
     [IO.Directory]::Move($publish, $output)
     Write-Output "Probe update: $(Join-Path $output $archiveName)"
     Write-Output "SHA-256: $sha256"
