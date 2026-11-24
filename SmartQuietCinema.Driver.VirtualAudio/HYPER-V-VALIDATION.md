@@ -35,15 +35,15 @@ Pass `-MSBuildPath` for an explicit WDK-enabled executable or `-KitRoot` for a c
 | `Documentation/` | This runbook, driver README, analysis notes and SysVAD license. |
 | `manifest.json` | Git provenance, component status, native manifest, and hashes of all payload files. |
 
-Keep the ZIP SHA-256 sidecar, `build.log`, `driver-manifest.json` and the `Symbols/` PDB on the host. The native manifest records SYS and PDB hashes. WinDbg matches the PDB by identifier and age, and the SYS records the PDB filename. The archive has no user A/B samples, debug tools, or private keys.
+Keep the ZIP SHA-256 sidecar, `build.log`, `msbuild.log`, `driver-manifest.json` and the `Symbols/` PDB on the host. The native manifest records SYS and PDB hashes. WinDbg matches the PDB by identifier and age, and the SYS records the PDB filename. The archive has no user A/B samples, debug tools, or private keys.
 
-**Stage A — Driver Laboratory.** The unsigned review bundle is `NotSigned` and `NotInstallable`. The manifest also records whether the checkout was clean. A signed clean build reports `RequiresGuestPrerequisites` until the guest's tools, trust, boot policy and recovery setup have been checked.
+**Stage A — Driver Laboratory.** The manifest records whether the checkout was clean and which signature checks were performed. An unsigned review bundle is `NotSigned` and `NotInstallable`. A signed build verified by the host reports `RequiresGuestPrerequisites`. A VMware transfer signed on the host for verification in the guest reports `SignedPendingGuestVerification` and `NotInstallableUntilGuestVerification`. All signed bundles require the guest checks and manual lab prerequisites before installation.
 
 **Stage B — Application Laboratory.** A failed app or Test Bench publication leaves Stage A available. The log records the reason and the manifest identifies omitted components. Use `-SkipApplication` when the build host lacks the MAUI Windows workload. A packaged MSIX needs registration, signature trust and any external dependencies staged offline. The bundle uses the app's existing unpackaged configuration with `WindowsAppSDKSelfContained=true`, app-local .NET for `win-x64`, and the Visual Studio x64 CRT from REDIST. If discovery fails, supply the licensed `x64\Microsoft.VC*.CRT` directory via `-VCRuntimeDirectory`. Launch on a clean guest remains **Not yet validated**. The app does not demonstrate a Virtual Audio → Loopback → DSP → Physical Output route. [MAUI Windows publishing](https://learn.microsoft.com/en-us/dotnet/maui/windows/deployment/publish-unpackaged-cli?view=net-maui-10.0) · [Windows App SDK self-contained deployment](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/self-contained-deploy/deploy-self-contained-apps) · [Visual C++ REDIST](https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files)
 
 ### Build with an existing test certificate
 
-Use a clean Git checkout, an existing Code Signing identity in `CurrentUser\My` or `LocalMachine\My` trusted by the signer, and the matching public CER. Keep the private key and PFX on the signer.
+Use a clean Git checkout, an existing Code Signing identity in `CurrentUser\My` or `LocalMachine\My`, and the matching public CER. Keep any private key on the signer. Prefer an existing non-exportable laboratory key.
 
 ```powershell
 $thumbprint = Read-Host 'Approved signer thumbprint (40 hexadecimal characters)'
@@ -52,7 +52,7 @@ $signed = Join-Path $env:TEMP ('sqc-signed-' + [guid]::NewGuid().ToString('N'))
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File $bundleScript -SourceCheckout $upstream -OutputDirectory $signed -CertificateThumbprint $thumbprint -PublicCertificatePath $publicCerPath
 ```
 
-Add `-CertificateStore LocalMachine` if needed. The driver packager signs SYS, generates a new CAT from the final INF and SYS, signs CAT and verifies both signatures and catalog membership with SignTool. Host Authenticode verification leaves guest trust and kernel Code Integrity to the guest. [Test-signing driver packages](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/test-signing-driver-packages)
+Add `-CertificateStore LocalMachine` if needed. The driver packager signs SYS, generates a new CAT from the final INF and signed SYS, and signs CAT. By default it requires successful host Authenticode and SignTool verification of both signatures and both catalog members. Repeat the checks in the guest. [Test-signing driver packages](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/test-signing-driver-packages)
 
 For VMware Workstation Pro, run the same command with `-VMware` to publish `SmartQuietCinema-VMware-Test-Signed.zip`. With `-UnsignedReview -VMware`, the output is `SmartQuietCinema-VMware-Test-Unsigned.zip`.
 
@@ -60,7 +60,17 @@ For VMware Workstation Pro, run the same command with `-VMware` to publish `Smar
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File $bundleScript -SourceCheckout $upstream -OutputDirectory $signed -CertificateThumbprint $thumbprint -PublicCertificatePath $publicCerPath -VMware
 ```
 
-When a dedicated laboratory certificate is needed, create it in the signing user's personal store with a non-exportable key and export a public CER to an unused path. A self-signed certificate in `CurrentUser\My` does not establish Authenticode trust. If SignTool reports an untrusted root, stop and record the error. Publication requires successful verification on an already trusted signer or separate authorization to change signer trust. Keep any files retained by a failed signing run with the host build log and PDB. [Creating a test certificate](https://learn.microsoft.com/en-us/powershell/module/pki/new-selfsignedcertificate) · [Verifying the test signature](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/verifying-the-test-signature)
+### Sign on the host and verify trust in VMware
+
+A self-signed certificate in `CurrentUser\My` can sign files while Windows reports an untrusted root during Authenticode verification. With `-VMware -DeferTrustToGuest`, the host requires successful SYS and CAT signing, checks the observed signer against the supplied certificate thumbprint, and verifies the native and ZIP hashes and clean Git provenance. Authenticode observations on the host do not establish trusted signatures or catalog membership in this mode. The guest must run both checks on the final files. No host trust-store change is required. [Verifying the test signature](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/verifying-the-test-signature)
+
+```powershell
+$transfer = Read-Host 'Unused host output directory under a short existing parent'
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $bundleScript -SourceCheckout $upstream -OutputDirectory $transfer -CertificateThumbprint $thumbprint -PublicCertificatePath $publicCerPath -VMware -DeferTrustToGuest
+if ($LASTEXITCODE -ne 0) { throw 'The signed transfer build failed.' }
+```
+
+Transfer `SmartQuietCinema-VMware-Test-GuestVerification.zip` and its `.sha256` sidecar. Deliver the ZIP SHA-256 and signer thumbprint through an independent handoff. The archive remains labeled pending after guest verification. Keep the guest result with the tested archive hash. If a new signer is needed for a separate approved run, create a non-exportable key in the signing user's personal store and export only the public CER to an unused path. [Creating a test certificate](https://learn.microsoft.com/en-us/powershell/module/pki/new-selfsignedcertificate)
 
 ### External guest tools
 
@@ -75,7 +85,16 @@ Obtain the official EWDK image on a connected machine and attach it to the offli
 
 ### Offline transfer and integrity checks
 
-**VMware Workstation Pro.** Manually attach an approved transfer ISO with the ZIP and SHA-256 sidecar to the designated offline guest through **VM → Settings → Hardware → CD/DVD → Use ISO image file**. Copy both files to a new location in the guest, keeping the existing unsigned extraction intact. Record the expected SHA-256 independently. [VMware virtual CD/DVD media](https://knowledge.broadcom.com/external/article/315617)
+**VMware Workstation Pro.** Place only the ZIP and sidecar in the existing approved VMware shared folder. From the designated offline guest, use the VMware Tools shared-folder path `\\vmware-host\Shared Folders\<share-name>` and copy to guest-local storage. Use a new destination directory and keep the existing unsigned extraction. The archive transfer needs no custom ISO. [VMware Tools shared folders](https://knowledge.broadcom.com/external/article/415374/customizing-vmware-tools-for-automated-w.html)
+
+```powershell
+$share = Join-Path '\\vmware-host\Shared Folders' (Read-Host 'Existing VMware share name')
+$copyTo = Join-Path 'C:\Test' ('SmartQuietCinema-VMware-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $copyTo -ErrorAction Stop
+$zipName = 'SmartQuietCinema-VMware-Test-GuestVerification.zip'
+Copy-Item -LiteralPath (Join-Path $share $zipName), (Join-Path $share "$zipName.sha256") -Destination $copyTo -ErrorAction Stop
+$zip = Join-Path $copyTo $zipName
+```
 
 **Hyper-V only.** For the existing Generation 2 workflow, use basic VMConnect. If approved for that guest, enable Hyper-V Guest Service Interface and check `vmicguestinterface` in Windows. Transfer the ZIP and checksum over the integration channel.
 
@@ -93,11 +112,12 @@ In the guest, compare SHA-256 before extracting to a new directory. Compare the 
 
 ```powershell
 $zip = Read-Host 'Full path of the copied ZIP in the guest'
-$expected = (Get-Content -LiteralPath "$zip.sha256" -Raw).Trim().Split(' ')[0]
-if ((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash -ne $expected) { throw 'ZIP hash mismatch.' }
+$expected = Read-Host 'ZIP SHA-256 received independently from the signer'
+$sidecar = (Get-Content -LiteralPath "$zip.sha256" -Raw).Trim().Split(' ')[0]
+if ($expected -notmatch '\A[0-9A-Fa-f]{64}\z' -or $expected -ne $sidecar -or (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash -ne $expected) { throw 'ZIP hash mismatch.' }
 $package = Join-Path (Split-Path -Path $zip -Parent) ([IO.Path]::GetFileNameWithoutExtension($zip))
 if (Test-Path -LiteralPath $package) { throw 'Choose an unused extraction path.' }
-Expand-Archive -LiteralPath $zip -DestinationPath $package
+Expand-Archive -LiteralPath $zip -DestinationPath $package -ErrorAction Stop
 $verify = Join-Path $package 'Scripts\Test-HyperVTestBundle.ps1'
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File $verify -PayloadOnly
 if ($LASTEXITCODE -ne 0) { throw 'The offline payload check failed.' }
@@ -142,15 +162,16 @@ Value `2` in `SecurityServicesRunning` indicates Memory Integrity is running. Ve
 The following commands apply only to the already approved **guest** with the selected public **self-signed** certificate. Run each change manually, then recheck the certificate stores and current boot entry after reboot.
 
 ```powershell
+$expectedSigner = Read-Host 'Signer thumbprint received independently from the signer'
 $publicCert = Join-Path $package 'Certificate\SmartQuietCinema-Lab.cer'
-certutil.exe -dump $publicCert
-# Continue only after comparing the public thumbprint with the independent signing record.
-Import-Certificate -FilePath $publicCert -CertStoreLocation Cert:\LocalMachine\Root
-Import-Certificate -FilePath $publicCert -CertStoreLocation Cert:\LocalMachine\TrustedPublisher
-bcdedit.exe /set '{current}' TESTSIGNING ON
+$manifest = Get-Content -LiteralPath (Join-Path $package 'manifest.json') -Raw | ConvertFrom-Json
+$identity = [Security.Cryptography.X509Certificates.X509Certificate2]::new($publicCert)
+try { if ($expectedSigner -notmatch '\A[0-9A-Fa-f]{40}\z' -or $identity.HasPrivateKey -or $identity.Thumbprint -ne $expectedSigner -or $manifest.driver.certificateThumbprint -ne $expectedSigner) { throw 'Unexpected public certificate.' } } finally { $identity.Dispose() }
+Import-Certificate -FilePath $publicCert -CertStoreLocation Cert:\LocalMachine\Root -ErrorAction Stop
+Import-Certificate -FilePath $publicCert -CertStoreLocation Cert:\LocalMachine\TrustedPublisher -ErrorAction Stop
 ```
 
-Restart the guest and confirm the current boot entry shows `testsigning Yes`. If the boot option is protected or the guest rejects the embedded signature with Memory Integrity active, stop and record the guest policy and Code Integrity events. Take a second checkpoint after guest policy and dump setup, before installing the package. [Loading test-signed code](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/the-testsigning-boot-configuration-option) · [Test certificate installation](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/installing-a-test-certificate-on-a-test-computer) · [Preproduction signing](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/preproduction-driver-signing-and-install)
+After any separately authorized boot-policy adjustment and guest restart, confirm the current boot entry shows `testsigning Yes`. If the boot option is protected or the guest rejects the embedded signature with Memory Integrity active, stop and record the guest policy and Code Integrity events. Take a second checkpoint after guest policy and dump setup, before installing the package. [Loading test-signed code](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/the-testsigning-boot-configuration-option) · [Test certificate installation](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/installing-a-test-certificate-on-a-test-computer) · [Preproduction signing](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/preproduction-driver-signing-and-install)
 
 ## Test 1 — Driver load
 
@@ -159,15 +180,23 @@ In the designated guest, record playback defaults using the bundled probe. Compa
 ```powershell
 $driver = Join-Path $package 'Driver'
 $inf = Join-Path $driver 'SmartQuietCinemaVirtualAudio.inf'
+$sys = Join-Path $driver 'SmartQuietCinemaVirtualAudio.sys'
+$cat = Join-Path $driver 'SmartQuietCinemaVirtualAudio.cat'
 $probe = Join-Path $package 'Tools\VirtualAudioProbe\SmartQuietCinema.Tools.VirtualAudioProbe.exe'
 & $probe defaults
 $devgen = Read-Host 'Full path to x64 DevGen.exe in the approved guest kit'
 $signtool = Read-Host 'Full path to x64 SignTool.exe in the approved guest kit'
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File $verify -RequireDriverLab -DevGenPath $devgen -SignToolPath $signtool
+& $signtool verify /pa /v $sys; if ($LASTEXITCODE -ne 0) { throw 'SYS signature verification failed.' }
+& $signtool verify /pa /v $cat; if ($LASTEXITCODE -ne 0) { throw 'CAT signature verification failed.' }
+& $signtool verify /pa /v /c $cat $inf; if ($LASTEXITCODE -ne 0) { throw 'INF catalog membership verification failed.' }
+& $signtool verify /pa /v /c $cat $sys; if ($LASTEXITCODE -ne 0) { throw 'SYS catalog membership verification failed.' }
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $verify -RequireDriverLab -DevGenPath $devgen -SignToolPath $signtool -ExpectedSignerThumbprint $expectedSigner -TransferArchivePath $zip -ExpectedTransferSha256 $expected
 if ($LASTEXITCODE -ne 0) { throw 'Stage A guest checks failed.' }
 ```
 
-Confirm test signing, guest recovery and authorization separately. Check for existing devices and prior package versions before creating a devnode.
+The combined gate repeats the four SignTool checks. It also requires valid Authenticode and the pinned signer on both files, the matching public CER, the manifest and file hashes, Microsoft-signed guest tools, a supported OS, running audio services and a passing probe smoke test. For transfers awaiting guest verification it requires the guest-local ZIP and independent SHA-256, and checks that the extracted manifest matches the verified ZIP. A nonzero SignTool exit code, including a warning, blocks success. `-PayloadOnly` checks the transfer payload and smoke test but cannot establish installation readiness. Preserve the guest verification report outside the extraction and rerun the gate before any installation if the extracted files change. Authenticode `/pa` does not prove that kernel Code Integrity will allow the driver to load. Confirm test signing, guest recovery and authorization separately. [SignTool verification](https://learn.microsoft.com/en-us/windows/win32/seccrypto/signtool)
+
+Check for existing devices and prior package versions before creating a devnode.
 
 ```powershell
 $hwid = 'ROOT\SmartQuietCinemaVirtualAudio'

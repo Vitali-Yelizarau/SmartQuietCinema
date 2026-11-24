@@ -14,6 +14,8 @@ Optional Windows Kits 10 root. Uses the installed KitsRoot10 registry value by d
 Thumbprint of an existing code-signing certificate with a private key. Omit it for an unsigned package.
 .PARAMETER CertificateStore
 Personal store containing the selected certificate. CurrentUser is the default.
+.PARAMETER DeferTrustToGuest
+Stages signed files for guest verification. The host does not attest trust or catalog membership in this mode.
 #>
 [CmdletBinding()]
 param(
@@ -22,7 +24,8 @@ param(
     [string]$MSBuildPath,
     [string]$KitRoot,
     [ValidatePattern('\A[0-9A-Fa-f]{40}\z')][string]$CertificateThumbprint,
-    [ValidateSet('CurrentUser', 'LocalMachine')][string]$CertificateStore = 'CurrentUser'
+    [ValidateSet('CurrentUser', 'LocalMachine')][string]$CertificateStore = 'CurrentUser',
+    [switch]$DeferTrustToGuest
 )
 
 $ErrorActionPreference = 'Stop'
@@ -88,6 +91,7 @@ function Get-NamedFileHashes {
 $work = $null
 $published = $false
 try {
+    if ($DeferTrustToGuest -and !$CertificateThumbprint) { throw '-DeferTrustToGuest requires a signing certificate.' }
     $kitVersion = '10.0.28000.0'
     $target = 'SmartQuietCinemaVirtualAudio'
     $hardwareId = 'ROOT\SmartQuietCinemaVirtualAudio'
@@ -201,14 +205,22 @@ try {
     if ($certificate) {
         Invoke-CheckedTool $signTool.FullName ($signArguments + $cat)
         foreach ($file in @($sys, $cat)) {
-            Invoke-CheckedTool $signTool.FullName @('verify', '/pa', '/v', $file)
+            if (!$DeferTrustToGuest) { Invoke-CheckedTool $signTool.FullName @('verify', '/pa', '/v', $file) }
             $signature = Get-AuthenticodeSignature -LiteralPath $file
             if ($null -eq $signature.SignerCertificate -or $signature.SignerCertificate.Thumbprint -ne $certificate.Thumbprint) {
                 throw "The signed file does not use the selected certificate: $file"
             }
+            if ($DeferTrustToGuest -and $signature.Status -notin 'Valid', 'NotTrusted', 'UnknownError') {
+                throw "Unexpected Authenticode status $($signature.Status) for signed file: $file"
+            }
         }
-        foreach ($file in @($inf, $sys)) { Invoke-CheckedTool $signTool.FullName @('verify', '/pa', '/v', '/c', $cat, $file) }
-        $signatureMode = 'TestSignedAuthenticodeVerified'
+        if ($DeferTrustToGuest) {
+            # A missing trust chain can surface as UnknownError. The guest must recheck both signatures and both catalog members.
+            $signatureMode = 'SignedPendingGuestVerification'
+        } else {
+            foreach ($file in @($inf, $sys)) { Invoke-CheckedTool $signTool.FullName @('verify', '/pa', '/v', '/c', $cat, $file) }
+            $signatureMode = 'TestSignedAuthenticodeVerified'
+        }
     }
 
     $finalHashes = Get-NamedFileHashes $driver $driverFiles
@@ -247,6 +259,7 @@ try {
         symbolsSha256 = Get-NamedFileHashes $symbols @($pdbName)
     }
     $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $publish 'manifest.json') -Encoding UTF8
+    [IO.File]::Copy($buildLog, (Join-Path $publish 'msbuild.log'))
     [IO.Directory]::Move($publish, $output)
     $published = $true
     Write-Output "Package: $output"

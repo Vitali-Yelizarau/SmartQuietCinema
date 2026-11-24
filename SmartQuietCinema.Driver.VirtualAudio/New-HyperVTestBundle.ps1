@@ -14,6 +14,8 @@ Existing Code Signing identity selected for the driver packager.
 The corresponding public CER file. PKCS#12 and private keys are rejected.
 .PARAMETER VMware
 Uses the VMware Workstation Pro target and archive name.
+.PARAMETER DeferTrustToGuest
+Publishes a signed VMware transfer ZIP that requires guest trust and catalog verification before use.
 .PARAMETER VCRuntimeDirectory
 Optional Visual Studio x64 Microsoft.VC*.CRT REDIST directory for unpackaged MAUI.
 #>
@@ -29,7 +31,8 @@ param(
     [string]$KitRoot,
     [string]$VCRuntimeDirectory,
     [switch]$SkipApplication,
-    [switch]$VMware
+    [switch]$VMware,
+    [Parameter(ParameterSetName = 'Signed')][switch]$DeferTrustToGuest
 )
 
 $ErrorActionPreference = 'Stop'
@@ -160,6 +163,7 @@ $publicCertificate = $null
 $transcribing = $false
 $published = $false
 try {
+    if ($DeferTrustToGuest -and !$VMware) { throw '-DeferTrustToGuest requires -VMware.' }
     $repo = Split-Path $PSScriptRoot -Parent
     $output = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputDirectory)
     if (Test-Path -LiteralPath $output) { throw "The output path already exists: $output" }
@@ -198,12 +202,13 @@ try {
     if ($MSBuildPath) { $driverArgs += @('-MSBuildPath', $MSBuildPath) }
     if ($KitRoot) { $driverArgs += @('-KitRoot', $KitRoot) }
     if ($CertificateThumbprint) { $driverArgs += @('-CertificateThumbprint', $CertificateThumbprint, '-CertificateStore', $CertificateStore) }
+    if ($DeferTrustToGuest) { $driverArgs += '-DeferTrustToGuest' }
     Write-Output '[Driver] Building and checking the current package.'
     Invoke-BundleCommand $ps51 $driverArgs
     $driverManifestPath = Join-Path $driverOutput 'manifest.json'
     $driverManifest = Get-Content -LiteralPath $driverManifestPath -Raw | ConvertFrom-Json
     if ($driverManifest.smartQuietCinemaRevision -ne $head) { throw 'The driver packager built a different Git revision.' }
-    $expectedMode = if ($CertificateThumbprint) { 'TestSignedAuthenticodeVerified' } else { 'Unsigned' }
+    $expectedMode = if ($DeferTrustToGuest) { 'SignedPendingGuestVerification' } elseif ($CertificateThumbprint) { 'TestSignedAuthenticodeVerified' } else { 'Unsigned' }
     if ($driverManifest.signingMode -ne $expectedMode -or $driverManifest.certificateThumbprint -ne $(if ($publicCertificate) { $publicCertificate.Thumbprint })) {
         throw 'The driver packager returned an unexpected signing result.'
     }
@@ -221,6 +226,7 @@ try {
     }
     [IO.Directory]::Move((Join-Path $driverOutput 'Symbols'), (Join-Path $publish 'Symbols'))
     [IO.File]::Copy($driverManifestPath, (Join-Path $publish 'driver-manifest.json'))
+    [IO.File]::Copy((Join-Path $driverOutput 'msbuild.log'), (Join-Path $publish 'msbuild.log'))
     if ($publicCertificate) {
         $certDirectory = Join-Path $payload 'Certificate'
         [void][IO.Directory]::CreateDirectory($certDirectory)
@@ -275,8 +281,8 @@ try {
         createdUtc = [DateTime]::UtcNow.ToString('o')
         target = if ($VMware) { 'Windows 11 x64 (build 22621 or later), VMware Workstation Pro' } else { 'Windows 11 Home x64 (build 22621 or later), Hyper-V Generation 2' }
         stageA = [ordered]@{
-            signature = if ($publicCertificate) { 'TestSignedAuthenticodeVerifiedOnHost' } else { 'NotSigned' }
-            installability = if ($publicCertificate) { 'RequiresGuestPrerequisites' } else { 'NotInstallable' }
+            signature = if ($DeferTrustToGuest) { 'SignedPendingGuestVerification' } elseif ($publicCertificate) { 'TestSignedAuthenticodeVerifiedOnHost' } else { 'NotSigned' }
+            installability = if ($DeferTrustToGuest) { 'NotInstallableUntilGuestVerification' } elseif ($publicCertificate) { 'RequiresGuestPrerequisites' } else { 'NotInstallable' }
             probe = 'Tools/VirtualAudioProbe/SmartQuietCinema.Tools.VirtualAudioProbe.exe'
             signalGenerator = 'VirtualAudioProbe probe <endpoint-id> [44100|48000]'
             devGen = 'RequiredSeparately'
@@ -291,7 +297,8 @@ try {
     Invoke-BundleCommand $ps51 @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $scripts 'Test-HyperVTestBundle.ps1'), '-PayloadOnly')
 
     Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
-    $zipName = if ($VMware -and $publicCertificate) { 'SmartQuietCinema-VMware-Test-Signed.zip' }
+    $zipName = if ($DeferTrustToGuest) { 'SmartQuietCinema-VMware-Test-GuestVerification.zip' }
+    elseif ($VMware -and $publicCertificate) { 'SmartQuietCinema-VMware-Test-Signed.zip' }
     elseif ($VMware) { 'SmartQuietCinema-VMware-Test-Unsigned.zip' }
     else { 'SmartQuietCinema-HyperV-Test.zip' }
     $zipPath = Join-Path $publish $zipName
