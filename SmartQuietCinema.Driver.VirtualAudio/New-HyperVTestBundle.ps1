@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-Builds a verified SmartQuietCinema ZIP for offline Hyper-V testing.
+Builds a verified SmartQuietCinema ZIP for offline virtual machine testing.
 .PARAMETER SourceCheckout
 Local checkout of the SysVAD revision used by the driver packager.
 .PARAMETER OutputDirectory
@@ -12,6 +12,8 @@ Creates an inspection archive whose driver is marked NotSigned and NotInstallabl
 Existing Code Signing identity selected for the driver packager.
 .PARAMETER PublicCertificatePath
 The corresponding public CER file. PKCS#12 and private keys are rejected.
+.PARAMETER VMware
+Uses the VMware Workstation Pro target and archive name.
 .PARAMETER VCRuntimeDirectory
 Optional Visual Studio x64 Microsoft.VC*.CRT REDIST directory for unpackaged MAUI.
 #>
@@ -26,7 +28,8 @@ param(
     [string]$MSBuildPath,
     [string]$KitRoot,
     [string]$VCRuntimeDirectory,
-    [switch]$SkipApplication
+    [switch]$SkipApplication,
+    [switch]$VMware
 )
 
 $ErrorActionPreference = 'Stop'
@@ -270,7 +273,7 @@ try {
         revision = $head
         workingTreeClean = !$dirty
         createdUtc = [DateTime]::UtcNow.ToString('o')
-        target = 'Windows 11 Home x64 (build 22621 or later), Hyper-V Generation 2'
+        target = if ($VMware) { 'Windows 11 x64 (build 22621 or later), VMware Workstation Pro' } else { 'Windows 11 Home x64 (build 22621 or later), Hyper-V Generation 2' }
         stageA = [ordered]@{
             signature = if ($publicCertificate) { 'TestSignedAuthenticodeVerifiedOnHost' } else { 'NotSigned' }
             installability = if ($publicCertificate) { 'RequiresGuestPrerequisites' } else { 'NotInstallable' }
@@ -288,7 +291,9 @@ try {
     Invoke-BundleCommand $ps51 @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $scripts 'Test-HyperVTestBundle.ps1'), '-PayloadOnly')
 
     Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
-    $zipName = 'SmartQuietCinema-HyperV-Test.zip'
+    $zipName = if ($VMware -and $publicCertificate) { 'SmartQuietCinema-VMware-Test-Signed.zip' }
+    elseif ($VMware) { 'SmartQuietCinema-VMware-Test-Unsigned.zip' }
+    else { 'SmartQuietCinema-HyperV-Test.zip' }
     $zipPath = Join-Path $publish $zipName
     $manifestFile = Get-Item -LiteralPath (Join-Path $payload 'manifest.json')
     $archiveRecords = $manifest.files + @(@{ path = 'manifest.json'; bytes = $manifestFile.Length; sha256 = (Get-FileHash -LiteralPath $manifestFile.FullName -Algorithm SHA256).Hash })

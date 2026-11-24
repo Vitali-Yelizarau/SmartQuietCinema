@@ -1,4 +1,4 @@
-# Hyper-V validation of the experimental virtual audio driver
+# Offline VM validation of the experimental virtual audio driver
 
 ## Validation status
 
@@ -10,7 +10,7 @@
 | Known limitations | The driver exposes an experimental render-only endpoint. The probe measures recognizable stereo content and transport integrity. Bit-exact output is outside that probe's checks. |
 | Installation blockers | A package accepted by the guest, verified signatures and hashes, a recoverable isolated guest, and explicit authorization for that guest's installation. An unsigned package is for offline review. |
 
-Keep installation and security-policy changes in the designated lab. Use the host only to build the package, manage the exact test VM, or analyze copied evidence.
+Keep installation and security-policy changes in the designated lab. VMware Workstation Pro and Hyper-V have separate transfer instructions. The Windows guest checks are shared.
 
 ## Build the offline laboratory bundle
 
@@ -54,13 +54,30 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File $bundleScript -SourceChe
 
 Add `-CertificateStore LocalMachine` if needed. The driver packager signs SYS, generates a new CAT from the final INF and SYS, signs CAT and verifies both signatures and catalog membership with SignTool. Host Authenticode verification leaves guest trust and kernel Code Integrity to the guest. [Test-signing driver packages](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/test-signing-driver-packages)
 
+For VMware Workstation Pro, run the same command with `-VMware` to publish `SmartQuietCinema-VMware-Test-Signed.zip`. With `-UnsignedReview -VMware`, the output is `SmartQuietCinema-VMware-Test-Unsigned.zip`.
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $bundleScript -SourceCheckout $upstream -OutputDirectory $signed -CertificateThumbprint $thumbprint -PublicCertificatePath $publicCerPath -VMware
+```
+
+When a dedicated laboratory certificate is needed, create it in the signing user's personal store with a non-exportable key and export a public CER to an unused path. A self-signed certificate in `CurrentUser\My` does not establish Authenticode trust. If SignTool reports an untrusted root, stop and record the error. Publication requires successful verification on an already trusted signer or separate authorization to change signer trust. Keep any files retained by a failed signing run with the host build log and PDB. [Creating a test certificate](https://learn.microsoft.com/en-us/powershell/module/pki/new-selfsignedcertificate) · [Verifying the test signature](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/verifying-the-test-signature)
+
 ### External guest tools
 
-Microsoft prohibits redistribution of DevGen. Use the official WDK and SDK under the lab's license. For example, download an approved EWDK ISO on a connected machine and make the official image available to the isolated guest. Verify that the selected kit supplies x64 `DevGen.exe` and `SignTool.exe` and record their full paths. Keep these tools in the kit or its mounted media. Windows supplies PnPUtil. The probe, Test Bench and included MAUI publish carry their own .NET runtime. [DevGen terms and usage](https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/devgen-command-syntax) · [Official WDK and EWDK media](https://learn.microsoft.com/en-us/windows-hardware/drivers/download-the-wdk)
+Use the official Microsoft WDK and SDK under the lab's license. For the verified host tool layout, select the Windows 11 26H2 kit row, release `28000.3231`, and use the official EWDK ISO or the matching SDK and WDK installers. Kit directories use `10.0.28000.0`. The x64 executables were verified at the following paths relative to the Windows Kits 10 root.
+
+| Tool | Kit | Relative path |
+| --- | --- | --- |
+| `DevGen.exe` | WDK (available from Windows 11 version 22H2 WDK onward) | `Tools\10.0.28000.0\x64\devgen.exe` |
+| `SignTool.exe` | Windows SDK | `bin\10.0.28000.0\x64\signtool.exe` |
+
+Obtain the official EWDK image on a connected machine and attach it to the offline guest as CD/DVD media for authorized lab use. EWDK includes the SDK, WDK and build tools. Microsoft lists .NET Framework 4.7.2 as the minimum for its build environment. Find the executables under the mounted image's Windows Kits tree; the ISO layout was not inspected for this run. Verify both binaries have valid Microsoft Authenticode signatures before use. Keep DevGen with the official kit because Microsoft prohibits redistribution. The bundle leaves both kit tools external. Windows supplies PnPUtil. The probe, Test Bench and optional MAUI publish carry their own .NET runtime. [DevGen terms and usage](https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/devgen-command-syntax) · [Exact kit release and EWDK download](https://learn.microsoft.com/en-us/windows-hardware/drivers/other-wdk-downloads) · [EWDK prerequisites](https://learn.microsoft.com/en-us/windows-hardware/drivers/download-the-wdk)
 
 ### Offline transfer and integrity checks
 
-Use Hyper-V Generation 2 with Windows 11 Home x64 build 22621 or later and **no network adapter**. Use basic VMConnect. If approved for that guest, enable the Hyper-V Guest Service Interface and check `vmicguestinterface` in Windows. Transfer the ZIP and checksum over the integration channel. Keep an independent copy of the expected checksum.
+**VMware Workstation Pro.** Manually attach an approved transfer ISO with the ZIP and SHA-256 sidecar to the designated offline guest through **VM → Settings → Hardware → CD/DVD → Use ISO image file**. Copy both files to a new location in the guest, keeping the existing unsigned extraction intact. Record the expected SHA-256 independently. [VMware virtual CD/DVD media](https://knowledge.broadcom.com/external/article/315617)
+
+**Hyper-V only.** For the existing Generation 2 workflow, use basic VMConnect. If approved for that guest, enable Hyper-V Guest Service Interface and check `vmicguestinterface` in Windows. Transfer the ZIP and checksum over the integration channel.
 
 ```powershell
 $vmId = [guid](Read-Host 'Recorded isolated VM ID')
@@ -75,10 +92,10 @@ Copy-VMFile -VM $vm -SourcePath "$zip.sha256" -DestinationPath 'C:\Lab\SmartQuie
 In the guest, compare SHA-256 before extracting to a new directory. Compare the sidecar value with the independent handoff record as well.
 
 ```powershell
-$zip = 'C:\Lab\SmartQuietCinema-HyperV-Test.zip'
+$zip = Read-Host 'Full path of the copied ZIP in the guest'
 $expected = (Get-Content -LiteralPath "$zip.sha256" -Raw).Trim().Split(' ')[0]
 if ((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash -ne $expected) { throw 'ZIP hash mismatch.' }
-$package = 'C:\Lab\SmartQuietCinema'
+$package = Join-Path (Split-Path -Path $zip -Parent) ([IO.Path]::GetFileNameWithoutExtension($zip))
 if (Test-Path -LiteralPath $package) { throw 'Choose an unused extraction path.' }
 Expand-Archive -LiteralPath $zip -DestinationPath $package
 $verify = Join-Path $package 'Scripts\Test-HyperVTestBundle.ps1'
@@ -90,9 +107,9 @@ The CLI smoke test exercises the production PCM generators and analyzer without 
 
 ## Prepare the designated VM
 
-All settings and PnP actions below are manual steps for a later authorized lab session. Use a disposable Hyper-V Generation 2 VM on a serviced Windows 11 Home x64 build at or above 22621. Record its Hyper-V VM ID and guest computer name. Provide a guest console through basic VMConnect, a vTPM, ample disk space for symbols and dumps, and no host audio redirection. Isolate the VM from production networks and data. Any debugger or HLK network requires another authorized lab pass. Keep the primary guest without a network adapter.
+All settings and PnP actions below are manual steps for a later authorized lab session. Use a disposable Windows 11 x64 guest on a serviced build at or above 22621. For VMware Workstation Pro, verify the saved VM name and clean snapshot in Snapshot Manager and use the Workstation console. Provide ample disk space for symbols and dumps. Keep guest internet access disabled. Any debugger or HLK network requires another authorized lab pass.
 
-On the Hyper-V host, use the recorded VM ID to confirm the target and read its firmware configuration. Make guest firmware changes only for that VM during the separately approved guest setup.
+For Hyper-V only, use the recorded VM ID to confirm the target and read its firmware configuration.
 
 ```powershell
 $vmId = [guid](Read-Host 'Recorded VM ID of the isolated SmartQuietCinema guest')
@@ -109,11 +126,9 @@ From an elevated **guest** PowerShell, record the build, architecture, Secure Bo
 Get-CimInstance Win32_OperatingSystem | Select-Object Caption, OSArchitecture, BuildNumber
 Confirm-SecureBootUEFI
 bcdedit.exe /enum '{current}'
-Get-CimInstance -Namespace root\Microsoft\Windows\DeviceGuard -ClassName Win32_DeviceGuard |
-    Select-Object VirtualizationBasedSecurityStatus, SecurityServicesConfigured, SecurityServicesRunning
+Get-CimInstance -Namespace root\Microsoft\Windows\DeviceGuard -ClassName Win32_DeviceGuard | Select-Object VirtualizationBasedSecurityStatus, SecurityServicesConfigured, SecurityServicesRunning
 Get-Service AudioEndpointBuilder, Audiosrv
-Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\CrashControl' |
-    Select-Object CrashDumpEnabled, DumpFile, AutoReboot
+Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\CrashControl' | Select-Object CrashDumpEnabled, DumpFile, AutoReboot
 ```
 
 Value `2` in `SecurityServicesRunning` indicates Memory Integrity is running. Verify both audio services are running before endpoint tests. Record any service or policy failure and resolve it separately inside the guest before proceeding. [VBS and Memory Integrity state](https://learn.microsoft.com/en-us/windows/security/hardware-security/enable-virtualization-based-protection-of-code-integrity)
@@ -121,7 +136,7 @@ Value `2` in `SecurityServicesRunning` indicates Memory Integrity is running. Ve
 ### Guest test signing
 
 - Microsoft preproduction signing uses a separately provisioned guest and validation process with Secure Boot enabled. The driver laboratory steps below describe the self-signed test package produced by this repository's tool. Any external signing process requires a manifest for its final files.
-- For a self-signed test package, use a checkpoint and verify the guest recovery key first. When approved, shut down the exact VM. In Hyper-V Manager open **that VM's** **Settings → Security**, verify its recorded VM ID in Hyper-V, and clear **Enable Secure Boot** for that VM. Boot it and verify `Confirm-SecureBootUEFI` returns `False`. Leave host Secure Boot and the guest's Memory Integrity policy alone.
+- For a self-signed test package, use a clean snapshot and verify the guest recovery key first. The operator configures the designated guest's Secure Boot and Test Signing Mode. In Workstation, UEFI settings are under **VM → Settings → Options → Advanced** when the selected VM is powered off. In Hyper-V Manager, the corresponding option is under that guest's **Settings → Security**. Verify the setting inside the booted guest. [VMware UEFI settings](https://knowledge.broadcom.com/external/article?legacyId=86207)
 - In the guest, verify the public self-signed certificate's thumbprint against the package manifest and a value obtained through the authorized signing handoff. Import that same public certificate into the guest's Local Computer **Trusted Root Certification Authorities** and **Trusted Publishers**. For a lab CA chain, trust the approved CA root and use the selected publisher certificate for Trusted Publishers. Keep the signing private key outside the guest.
 
 The following commands apply only to the already approved **guest** with the selected public **self-signed** certificate. Run each change manually, then recheck the certificate stores and current boot entry after reboot.

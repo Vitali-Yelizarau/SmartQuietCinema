@@ -4,7 +4,7 @@
 Tests an unsigned lab bundle and failure handling without changing Windows or using an audio endpoint.
 #>
 [CmdletBinding()]
-param([Parameter(Mandatory)][string]$BundleDirectory)
+param([Parameter(Mandatory)][string]$BundleDirectory, [switch]$VMware)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -63,7 +63,8 @@ try {
     $parent = [IO.Path]::GetDirectoryName($bundle)
     $work = Join-Path $parent ('.sqc-bundle-tests-' + [guid]::NewGuid().ToString('N'))
     [void](New-Item -ItemType Directory -Path $work)
-    $zip = Join-Path $bundle 'SmartQuietCinema-HyperV-Test.zip'
+    $zipName = if ($VMware) { 'SmartQuietCinema-VMware-Test-Unsigned.zip' } else { 'SmartQuietCinema-HyperV-Test.zip' }
+    $zip = Join-Path $bundle $zipName
     $digest = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash
     if ($digest -ne (Get-Content -LiteralPath "$zip.sha256" -Raw).Trim().Split(' ')[0]) { throw 'The ZIP and SHA-256 sidecar disagree.' }
     Write-Output 'PASS Archive SHA-256 sidecar'
@@ -71,6 +72,8 @@ try {
     $extract = Join-Path $work 'extract'
     Expand-Archive -LiteralPath $zip -DestinationPath $extract
     $manifest = Get-Content -LiteralPath (Join-Path $extract 'manifest.json') -Raw | ConvertFrom-Json
+    $lab = if ($VMware) { 'VMware Workstation Pro' } else { 'Hyper-V Generation 2' }
+    if (!$manifest.target.EndsWith($lab, [StringComparison]::Ordinal)) { throw "Expected the manifest target to identify $lab." }
     if ($manifest.stageA.signature -ne 'NotSigned' -or $manifest.stageA.installability -ne 'NotInstallable' -or $manifest.stageA.publicCertificate) {
         throw 'The review bundle must be noninstallable and contain no signing identity.'
     }

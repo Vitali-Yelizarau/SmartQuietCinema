@@ -56,7 +56,7 @@ function Save-GuestEvidence {
     Get-CimInstance Win32_OperatingSystem | Select-Object Caption, OSArchitecture, BuildNumber | Out-File -LiteralPath $state -Append
     Get-CimInstance Win32_ComputerSystem | Select-Object Manufacturer, Model, HypervisorPresent | Out-File -LiteralPath $state -Append
     Get-NetAdapter -ErrorAction Continue | Select-Object Name, Status, InterfaceDescription | Out-File -LiteralPath $state -Append
-    Get-Service AudioEndpointBuilder, Audiosrv, vmicguestinterface | Out-File -LiteralPath $state -Append
+    Get-Service AudioEndpointBuilder, Audiosrv | Out-File -LiteralPath $state -Append
     "Secure Boot: $(Confirm-SecureBootUEFI)" | Out-File -LiteralPath $state -Append
     Get-CimInstance -Namespace root\Microsoft\Windows\DeviceGuard -ClassName Win32_DeviceGuard -ErrorAction Continue |
         Select-Object VirtualizationBasedSecurityStatus, SecurityServicesConfigured, SecurityServicesRunning |

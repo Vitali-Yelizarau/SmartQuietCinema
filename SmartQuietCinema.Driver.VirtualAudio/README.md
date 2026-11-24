@@ -59,9 +59,9 @@ Two independent render clients emit continuous deterministic, low-level signals.
 
 The analyzer projects Hann-windowed 125 ms chunks onto the marker frequencies at the actual capture rate. Four consecutive windows must contain both sources in the correct stereo channels. Projections allow gain and phase changes and require the expected frequency to exceed opposite-channel leakage. A fixed unrelated tone cannot satisfy all four projections. Significant energy at the pinned SysVAD default loopback tone of 3000 Hz also fails, even alongside the markers. The command reports no frames and captured silence separately, rejects malformed or truncated capture and nonfinite samples, and fails on observed transport errors. This is a controlled test for recognizable PCM and channel placement, with no bit-exact comparison. Keep other audio off the test endpoint while probing.
 
-## Hyper-V validation
+## Offline VM validation
 
-Use the [Hyper-V validation runbook](HYPER-V-VALIDATION.md) to build a fresh lab package, optionally sign it with an existing certificate, and prepare a recoverable guest. It covers exact ROOT devnode creation and cleanup, PCM acceptance, PnP lifecycle, Driver Verifier and dump recovery.
+Use the [offline VM validation runbook](HYPER-V-VALIDATION.md) to build a fresh VMware Workstation Pro or Hyper-V lab package and sign it with a selected certificate. It covers exact ROOT devnode creation and cleanup, PCM acceptance, PnP lifecycle, Driver Verifier and dump recovery.
 
 The offline bundle starts from a fresh v6 SysVAD staging tree. It includes the INF, SYS and CAT, the self-contained probe and PCM sources, guest verification, and optional self-contained MAUI and Audio Test Bench. The ZIP records SHA-256 for its payload files. Keep the matching driver PDB on the host. DevGen and SignTool come from the separately authorized guest kit. The unsigned output is for offline review. Driver load, PnP with open streams, live PCM, and Code Integrity acceptance remain **Not yet validated**. See the [lifecycle analysis](STATIC-ANALYSIS.md#adapter-ownership-and-terminal-pnp) for the validated source and mock behavior.
 
