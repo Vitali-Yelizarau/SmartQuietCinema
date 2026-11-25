@@ -15,6 +15,9 @@ foreach ($definition in $ast.FindAll({ param($node) $node -is [Management.Automa
 
 $temporary = [IO.Directory]::CreateDirectory((Join-Path ([IO.Path]::GetTempPath()) ('sqc-wpr-test-' + [guid]::NewGuid().ToString('N')))).FullName
 $shell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+$wprp = Join-Path $temporary 'Isolation.wprp'
+# WPR splits file paths on ! before loading a profile. Some test sandboxes include ! in their redirected temp root.
+if ($wprp.Contains('!')) { $wprp = Join-Path $PSScriptRoot ('sqc-wpr-test-' + [guid]::NewGuid().ToString('N') + '.wprp') }
 $passed = 0
 try {
     # Every condition occupies every position and precedes every other condition once inside the balanced blocks.
@@ -26,6 +29,39 @@ try {
     if ($schedule.Count -ne 16 -or @($positions | Where-Object Count -ne 1).Count -or @($pairs | Sort-Object -Unique).Count -ne 12) {
         throw 'The Williams schedule is no longer counterbalanced.'
     }
+    $passed++
+
+    # Both arms target OFF at the same delay, and both comparison orders appear in the focused design.
+    $focused = @(Get-FocusedSchedule 15 '')
+    $isolated = @(Get-FocusedSchedule 0 'Sampling')
+    if ($focused.Count -ne 8 -or ($focused.Condition -join ',') -ne 'CPU,Off,Off,Off,Off,Off,CPU,Off' -or
+        @($focused | Where-Object { $_.DelaySeconds -ne 15 }).Count -or ($isolated.Condition -join ',') -ne 'Sampling,Reference,Reference,Sampling' -or
+        @($focused | Where-Object { $_.Role -eq 'Target' -and $_.Condition -eq 'Off' }).Count -ne 4) { throw 'Matched WPR controls were lost.' }
+    $passed++
+
+    # The real WPR parser reads all three custom file-mode definitions without opening a recording.
+    $wpr = Join-Path $env:SystemRoot 'System32\wpr.exe'
+    Write-IsolationProfiles $wprp
+    $xml = [xml](Get-Content -LiteralPath $wprp -Raw)
+    if ($xml.SelectNodes('//EventProvider|//Stacks|//HardwareCounter').Count -or $xml.SelectNodes('//SystemCollector').Count -ne 1) { throw 'The custom profiles no longer isolate event families.' }
+    foreach ($condition in 'Reference', 'Sampling', 'Scheduling') {
+        $details = Join-Path $temporary "details-$condition"
+        if ((Invoke-LabChild $wpr @('-profiledetails', "$wprp!$condition", '-filemode') $details) -ne 0) {
+            throw "WPR rejected $condition. $(Get-Content -LiteralPath "$details.stderr.txt" -Raw)"
+        }
+        Assert-IsolationCapture $condition (Get-Content -LiteralPath "$details.stdout.txt" -Raw -Encoding OEM)
+    }
+    $passed++
+
+    # Event rows and loss counters independently reject contaminated, empty, or lossy sampling evidence.
+    $sampleStats = "Total # Lost Buffers : 0`r`nTotal # Lost Events : 0`r`n    0x2e  0x00  0x0002      90       1440  Sampled Profile  `r`n"
+    Assert-IsolationCapture 'Sampling' $sampleStats -TraceStats
+    Assert-IsolationCapture 'Reference' ($sampleStats -replace '(?m)^.*Sampled Profile.*$', '') -TraceStats
+    $failures = 0
+    foreach ($invalid in ($sampleStats -replace 'Events : 0', 'Events : 1'), ($sampleStats + '    0x24   0x00   0x0005  510  14280  Thread: CSwitch')) {
+        try { Assert-IsolationCapture 'Sampling' $invalid -TraceStats } catch { $failures++ }
+    }
+    if ($failures -ne 2) { throw 'The isolation coverage check accepted contaminated results.' }
     $passed++
 
     # Probe clock offsets are relative to origin. Startup, teardown, and process exit are distinct from streaming.
@@ -137,6 +173,13 @@ next_hresult,get_hresult,release_hresult
     if ($failures -ne 2 -or $calls.Count -ne 3) { throw 'A failed cancellation or a foreign session was accepted.' }
     $passed++
 
+    # The carryover primer deliberately cancels only its private session and bypasses the slow ETL save.
+    $calls.Clear()
+    $cancelCode = 0
+    if (!(Stop-LabTrace 'wpr-stub' $instance $temporary $true -Discard) -or $calls.Count -ne 1 -or
+        $calls[0] -cne "-cancel|-instancename|$instance") { throw 'The primer attempted to merge a trace or cancelled a foreign session.' }
+    $passed++
+
     # Exercise the trial with a real child clock and mocked WPR. The combined case must retain the Probe's failure status and save all timer phases.
     $sequenceChild = Join-Path $temporary 'synthetic sequence.ps1'
     @'
@@ -178,8 +221,19 @@ exit 1
         $phases[-1] -ne 'after-condition-stop' -or [IO.File]::ReadAllText($active)) { throw 'The trial lost Probe failure status, timer evidence, or private cleanup.' }
     $passed++
 
+    # A missed deadline is an invalid pair, even if a Probe could still report passing PCM.
+    $overdue = [Diagnostics.Stopwatch]::GetTimestamp() - 2 * [Diagnostics.Stopwatch]::Frequency
+    $rejected = $false
+    try { [void](Invoke-WprTrial 'wpr-stub' 'probe-stub' 'endpoint-id' $trial $temporary $active -DueTicks $overdue) } catch {
+        if ($_.ToString() -notmatch 'missed its matched launch deadline') { throw }
+        $rejected = $true
+    }
+    if (!$rejected) { throw 'An overdue target was accepted.' }
+    $passed++
+
     "VMware WPR comparison tests: $passed passed, 0 failed, 0 skipped."
 } finally {
+    [IO.File]::Delete($wprp)
     foreach ($file in Get-ChildItem -LiteralPath $temporary -File) { [IO.File]::Delete($file.FullName) }
     [IO.Directory]::Delete($temporary)
 }
