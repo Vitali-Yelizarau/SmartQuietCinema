@@ -12,7 +12,7 @@ param(
     [Parameter(ParameterSetName = 'Experiment')][string]$SignToolPath,
     [Parameter(ParameterSetName = 'Experiment')][string]$XperfPath,
     [Parameter(ParameterSetName = 'Experiment')][ValidateRange(1, 3)][int]$Cycles = 1,
-    [Parameter(ParameterSetName = 'Experiment')][ValidateSet(0, 2, 15, 60)][int]$CarryoverDelaySeconds = 0,
+    [Parameter(ParameterSetName = 'Experiment')][ValidateSet(0, 2, 3, 15, 60)][int]$CarryoverDelaySeconds = 0,
     [Parameter(ParameterSetName = 'Experiment')][ValidateSet('Sampling', 'Scheduling')][string]$IsolationProfile,
     [Parameter(Mandatory, ParameterSetName = 'Cleanup', DontShow)][int]$OwnerId,
     [Parameter(Mandatory, ParameterSetName = 'Cleanup', DontShow)][string]$CleanupDirectory,
@@ -26,12 +26,31 @@ function Start-LabChild {
     <# .SYNOPSIS
     Starts a Windows child with literal arguments and separate stdout and stderr evidence under PowerShell 5.1.
     #>
-    param([string]$Program, [string[]]$Arguments, [string]$LogPrefix, [switch]$Wait)
+    param([string]$Program, [string[]]$Arguments, [string]$LogPrefix, [switch]$Wait, [hashtable]$Launch)
     $argumentLine = ($Arguments | ForEach-Object { '"' + ($_ -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"' }) -join ' '
-    $child = Start-Process -FilePath $Program -ArgumentList $argumentLine -RedirectStandardOutput "$LogPrefix.stdout.txt" -RedirectStandardError "$LogPrefix.stderr.txt" -PassThru -WindowStyle Hidden -Wait:$Wait
+    $start = @{ FilePath = $Program; ArgumentList = $argumentLine; RedirectStandardOutput = "$LogPrefix.stdout.txt";
+        RedirectStandardError = "$LogPrefix.stderr.txt"; PassThru = $true; WindowStyle = 'Hidden'; Wait = $Wait }
+    if ($Launch) {
+        $Launch.StartTicks = [Diagnostics.Stopwatch]::GetTimestamp()
+        Assert-TrialDeadline $Launch.DueTicks $Launch.StartTicks
+    }
+    try { $child = Start-Process @start }
+    finally { if ($Launch) { $Launch.ReturnTicks = [Diagnostics.Stopwatch]::GetTimestamp() } }
     # Keep the process handle open so Windows PowerShell 5.1 records an exit code after an asynchronous wait.
-    if (!$Wait) { [void]$child.Handle }
+    try { if (!$Wait) { [void]$child.Handle } }
+    catch { Close-LabChild $child; throw }
     return $child
+}
+
+function Close-LabChild {
+    <# .SYNOPSIS
+    Releases a child handle and stops the owned process if its trial could not finish.
+    #>
+    param([Diagnostics.Process]$Child)
+    if (!$Child) { return }
+    try {
+        if (!$Child.HasExited) { $Child.Kill(); $Child.WaitForExit() }
+    } finally { $Child.Dispose() }
 }
 
 function Invoke-LabChild {
@@ -241,6 +260,29 @@ function Wait-TrialStart {
     if ($milliseconds -gt 0) { Start-Sleep -Milliseconds ([int][Math]::Ceiling($milliseconds)) }
 }
 
+function Assert-TrialDeadline {
+    <# .SYNOPSIS
+    Rejects an overdue target using the unchanged 250 ms tolerance around the primer-exit deadline.
+    #>
+    param([long]$DueTicks, [long]$ObservedTicks)
+    $toleranceTicks = [Diagnostics.Stopwatch]::Frequency / 4
+    if ($DueTicks -and ($ObservedTicks - $DueTicks) -gt $toleranceTicks) {
+        throw 'The OFF target missed its matched launch deadline by more than 250 ms. Inspect trial-timing.csv in the primer and target directories.'
+    }
+}
+
+function Add-TrialTiming {
+    <# .SYNOPSIS
+    Retains QPC boundaries in memory so evidence logging cannot delay the matched launch.
+    #>
+    param([Collections.Generic.List[object]]$Timings, [string]$Operation, [long]$StartTicks, [long]$EndTicks = [Diagnostics.Stopwatch]::GetTimestamp(),
+        [string]$ProcessStartUtc, [string]$ProcessExitUtc)
+    $frequencyHz = [Diagnostics.Stopwatch]::Frequency
+    $Timings.Add([pscustomobject]@{ Operation = $Operation; StartTicks = $StartTicks; EndTicks = $EndTicks;
+        DurationUs = ($EndTicks - $StartTicks) * 1000000.0 / $frequencyHz; FrequencyHz = $frequencyHz;
+        ProcessStartUtc = $ProcessStartUtc; ProcessExitUtc = $ProcessExitUtc })
+}
+
 function Get-Median {
     <# .SYNOPSIS
     Returns the median of available intervals and leaves an empty population unreported.
@@ -296,101 +338,188 @@ function Get-PcmMetrics {
 
 function Invoke-WprTrial {
     <# .SYNOPSIS
-    Runs the identical 48 kHz workload for one condition and durably hands off named cleanup before attempting WPR start.
+    Runs the 48 kHz workload, cleans up its private trace, and optionally defers evidence processing until after the matched target.
     #>
     param([string]$Wpr, [string]$Probe, [string]$Endpoint, [object]$Trial, [string]$Directory, [string]$ActiveSession,
-        [int]$IdleSeconds = 1, [long]$DueTicks = 0, [switch]$DiscardTrace, [string]$ProfilePath)
+        [int]$IdleSeconds = 1, [long]$DueTicks = 0, [switch]$DiscardTrace, [string]$ProfilePath,
+        [AllowEmptyString()][string]$ExpectedDefaults, [Collections.Generic.List[object]]$Timings)
+    $prepareStart = [Diagnostics.Stopwatch]::GetTimestamp()
+    if ($null -eq $Timings) { $Timings = [Collections.Generic.List[object]]::new() }
+    $verifyPrimerDefaults = $PSBoundParameters.ContainsKey('ExpectedDefaults')
     $sourceRate = 48000
     $sampleIntervalMs = 250
     $timeoutMs = 30000
-    $deadlineToleranceSeconds = 0.25
     $profiles = @{ Off = @(); Audio = @('Audio'); CPU = @('CPU'); Combined = @('Audio', 'CPU') }
     if ($ProfilePath) { $profiles[$Trial.Condition] = @("$ProfilePath!$($Trial.Condition)") }
     $timer = [Collections.Generic.List[object]]::new()
     $instance = $null
     $child = $null
+    $defaultsChild = $null
+    $defaultsExit = $null
     $started = $false
     $traceSaved = $null
-    $streamSamples = 0
-    $probeExit = -1
-    $output = ''
+    $acquired = $false
+    $probeExit = $null
+    $processStartUtc = ''
     $prefix = Join-Path $Directory 'probe'
     $packetPath = Join-Path $Directory 'packets.csv'
+    $defaultsPrefix = Join-Path $Directory 'defaults-after'
+    $probeArguments = @('probe-sequence', $Endpoint, "$sourceRate", '--trace', $packetPath)
+    $launch = @{ DueTicks = $DueTicks; StartTicks = 0L; ReturnTicks = 0L }
+    $defaultsLaunch = @{ DueTicks = 0L; StartTicks = 0L; ReturnTicks = 0L }
+    Add-TrialTiming $Timings 'prepare-trial' $prepareStart
+    if ($DueTicks) { Add-TrialTiming $Timings 'target-due' $DueTicks $DueTicks }
     try {
-        Wait-TrialStart $DueTicks $IdleSeconds
-        $timer.Add((Read-TimerResolution 'before-condition'))
-        if ($DueTicks -and ($timer[0].Ticks - $DueTicks) -gt $deadlineToleranceSeconds * [Diagnostics.Stopwatch]::Frequency) {
-            throw 'The OFF target missed its matched launch deadline by more than 250 ms. Inspect primer cancellation and defaults logs.'
-        }
-        if ($Trial.Condition -ne 'Off') {
-            $instance = 'SqcWpr-' + [guid]::NewGuid().ToString('N')
-            [IO.File]::WriteAllText((Join-Path $Directory 'wpr-instance.txt'), $instance)
-            [IO.File]::WriteAllText($ActiveSession, $instance)
-            $startArguments = foreach ($profile in $profiles[$Trial.Condition]) { '-start'; $profile }
-            $start = Invoke-LabChild $Wpr @($startArguments + @('-filemode', '-instancename', $instance)) (Join-Path $Directory 'wpr-start')
-            if ($start -ne 0) { throw "WPR could not start $($Trial.Condition) (exit $start)." }
-            $started = $true
-            if ($ProfilePath) {
-                $statusPrefix = Join-Path $Directory 'wpr-active'
-                $status = Invoke-LabChild $Wpr @('-status', 'profiles', 'collectors', '-instancename', $instance) $statusPrefix
-                if ($status -ne 0) { throw "Could not inspect active WPR collectors (exit $status)." }
-                Assert-IsolationCapture $Trial.Condition (Get-Content -LiteralPath "$statusPrefix.stdout.txt" -Raw -Encoding OEM)
-            }
-        }
-        $timer.Add((Read-TimerResolution 'after-condition-start'))
-        $child = Start-LabChild $Probe @('probe-sequence', $Endpoint, "$sourceRate", '--trace', $packetPath) $prefix
-        $deadline = [Diagnostics.Stopwatch]::StartNew()
-        while (!$child.WaitForExit($sampleIntervalMs)) {
-            if ($deadline.ElapsedMilliseconds -ge $timeoutMs) { throw 'The native Probe exceeded its trial timeout.' }
-            $timer.Add((Read-TimerResolution 'probe-active'))
-        }
-        $timer.Add((Read-TimerResolution 'after-probe-exit'))
-        $probeExit = $child.ExitCode
-        if ($null -eq $probeExit) { throw 'The Probe did not report a process exit code.' }
-        [IO.File]::WriteAllText("$prefix.exit.txt", [string]$probeExit)
-    } finally {
         try {
-            if ($child) {
-                try { if (!$child.HasExited) { $child.Kill(); $child.WaitForExit() } }
-                finally { $child.Dispose() }
+            $tick = [Diagnostics.Stopwatch]::GetTimestamp()
+            Wait-TrialStart $DueTicks $IdleSeconds
+            Add-TrialTiming $Timings 'wait-for-trial' $tick
+            $timer.Add((Read-TimerResolution 'before-condition'))
+            Add-TrialTiming $Timings 'timer-before-condition' $timer[0].Ticks
+            Assert-TrialDeadline $DueTicks ([Diagnostics.Stopwatch]::GetTimestamp())
+            if ($Trial.Condition -ne 'Off') {
+                $instance = 'SqcWpr-' + [guid]::NewGuid().ToString('N')
+                [IO.File]::WriteAllText((Join-Path $Directory 'wpr-instance.txt'), $instance)
+                [IO.File]::WriteAllText($ActiveSession, $instance)
+                $startArguments = foreach ($profile in $profiles[$Trial.Condition]) { '-start'; $profile }
+                $start = Invoke-LabChild $Wpr @($startArguments + @('-filemode', '-instancename', $instance)) (Join-Path $Directory 'wpr-start')
+                if ($start -ne 0) { throw "WPR could not start $($Trial.Condition) (exit $start)." }
+                $started = $true
+                if ($ProfilePath) {
+                    $statusPrefix = Join-Path $Directory 'wpr-active'
+                    $status = Invoke-LabChild $Wpr @('-status', 'profiles', 'collectors', '-instancename', $instance) $statusPrefix
+                    if ($status -ne 0) { throw "Could not inspect active WPR collectors (exit $status)." }
+                    Assert-IsolationCapture $Trial.Condition (Get-Content -LiteralPath "$statusPrefix.stdout.txt" -Raw -Encoding OEM)
+                }
+            }
+            $timer.Add((Read-TimerResolution 'after-condition-start'))
+            Add-TrialTiming $Timings 'timer-after-condition-start' $timer[1].Ticks
+            try {
+                $child = Start-LabChild $Probe $probeArguments $prefix -Launch $launch
+                $processStartUtc = $child.StartTime.ToUniversalTime().ToString('O')
+            }
+            finally {
+                if ($launch.ReturnTicks) { Add-TrialTiming $Timings 'probe-start-process' $launch.StartTicks $launch.ReturnTicks -ProcessStartUtc $processStartUtc }
+                elseif ($launch.StartTicks) { Add-TrialTiming $Timings 'probe-launch-rejected' $launch.StartTicks $launch.StartTicks }
+            }
+            Assert-TrialDeadline $DueTicks $launch.ReturnTicks
+            $deadline = [Diagnostics.Stopwatch]::StartNew()
+            while (!$child.WaitForExit($sampleIntervalMs)) {
+                if ($deadline.ElapsedMilliseconds -ge $timeoutMs) { throw 'The native Probe exceeded its trial timeout.' }
+                $timer.Add((Read-TimerResolution 'probe-active'))
+            }
+            $timer.Add((Read-TimerResolution 'after-probe-exit'))
+            Add-TrialTiming $Timings 'timer-after-probe-exit' $timer[$timer.Count - 1].Ticks
+            $probeExit = $child.ExitCode
+            if ($null -eq $probeExit) { throw 'The Probe did not report a process exit code.' }
+            if ($verifyPrimerDefaults) {
+                # The read-only snapshot can run during named cancellation, after the primer stream has exited.
+                try { $defaultsChild = Start-LabChild $Probe @('defaults') $defaultsPrefix -Launch $defaultsLaunch }
+                finally {
+                    if ($defaultsLaunch.ReturnTicks) { Add-TrialTiming $Timings 'defaults-start-process' $defaultsLaunch.StartTicks $defaultsLaunch.ReturnTicks }
+                }
             }
         } finally {
             try {
-                if ($instance) {
-                    $traceSaved = Stop-LabTrace $Wpr $instance $Directory $started -Discard:$DiscardTrace
-                    [IO.File]::WriteAllText($ActiveSession, '')
-                }
+                $tick = [Diagnostics.Stopwatch]::GetTimestamp()
+                Close-LabChild $child
+                Add-TrialTiming $Timings 'close-probe' $tick
             } finally {
-                $timer.Add((Read-TimerResolution 'after-condition-stop'))
-                if ($probeExit -ge 0) {
-                    $output = Get-Content -LiteralPath "$prefix.stdout.txt" -Encoding OEM -Raw
-                    $streamSamples = Set-StreamingPhases $timer.ToArray() $output
+                try {
+                    if ($instance) {
+                        $tick = [Diagnostics.Stopwatch]::GetTimestamp()
+                        $stopOperation = if ($DiscardTrace -or !$started) { 'wpr-cancel' } else { 'wpr-stop' }
+                        try { $traceSaved = Stop-LabTrace $Wpr $instance $Directory $started -Discard:$DiscardTrace }
+                        finally { Add-TrialTiming $Timings $stopOperation $tick }
+                        $tick = [Diagnostics.Stopwatch]::GetTimestamp()
+                        [IO.File]::WriteAllText($ActiveSession, '')
+                        Add-TrialTiming $Timings 'clear-private-session' $tick
+                    }
+                } finally {
+                    $timer.Add((Read-TimerResolution 'after-condition-stop'))
+                    Add-TrialTiming $Timings 'timer-after-condition-stop' $timer[$timer.Count - 1].Ticks
                 }
+            }
+        }
+        if ($instance -and !$traceSaved) { throw "The WPR session did not finish as requested for $($Trial.Condition)." }
+        if ($verifyPrimerDefaults) {
+            $tick = [Diagnostics.Stopwatch]::GetTimestamp()
+            try {
+                if (!$defaultsChild.WaitForExit($timeoutMs)) { throw 'The primer playback defaults query timed out.' }
+                $defaultsExit = $defaultsChild.ExitCode
+            } finally { Add-TrialTiming $Timings 'defaults-wait' $tick }
+            $defaultsProcessTimes = @{ ProcessStartUtc = $defaultsChild.StartTime.ToUniversalTime().ToString('O'); ProcessExitUtc = $defaultsChild.ExitTime.ToUniversalTime().ToString('O') }
+            Add-TrialTiming $Timings 'defaults-process-lifetime' $defaultsLaunch.StartTicks @defaultsProcessTimes
+            $tick = [Diagnostics.Stopwatch]::GetTimestamp()
+            try {
+                $snapshot = Get-Content -LiteralPath "$defaultsPrefix.stdout.txt" -Raw -Encoding OEM
+                if ($null -eq $defaultsExit -or $defaultsExit -ne 0 -or $ExpectedDefaults -cne $snapshot) {
+                    throw "Default playback roles changed or could not be verified after the $($Trial.Condition) primer."
+                }
+            } finally { Add-TrialTiming $Timings 'defaults-verify' $tick }
+        }
+        $acquired = $true
+    } finally {
+        try { Close-LabChild $defaultsChild }
+        finally {
+            if (!$acquired) {
+                if ($null -ne $probeExit) { [IO.File]::WriteAllText("$prefix.exit.txt", [string]$probeExit) }
+                if ($null -ne $defaultsExit) { [IO.File]::WriteAllText("$defaultsPrefix.exit.txt", [string]$defaultsExit) }
                 $timer | Export-Csv -LiteralPath (Join-Path $Directory 'timer-resolution.csv') -Encoding UTF8 -NoTypeInformation
+                $Timings | Export-Csv -LiteralPath (Join-Path $Directory 'trial-timing.csv') -Encoding UTF8 -NoTypeInformation
             }
         }
     }
-    if ($instance -and !$traceSaved) { throw "The WPR session did not finish as requested for $($Trial.Condition)." }
-    if ($output -notmatch '(?m)^Capture: [^\r\n]*, 48000 Hz, 2 channels,') { throw 'The Probe did not report the expected 48 kHz stereo capture format.' }
-    if ($output -notmatch '(?m)^Capture reader: native Windows COM, stimulus=aperiodic,') { throw 'The Probe did not report the expected native aperiodic workload.' }
-    if (!$streamSamples -or @($timer | Where-Object { !$_.Valid }).Count) { throw 'Timer query coverage or validity is incomplete. Inspect timer-resolution.csv.' }
-    $metrics = Get-PcmMetrics $packetPath $sourceRate
-    $firstAfterStream = $timer | Where-Object { $_.Phase -in 'after-streaming', 'after-probe-exit' } | Select-Object -First 1
-    $playClock = [regex]::Match($output, '(?m)^Stopwatch: frequency_hz=\d+, origin_ticks=(\d+), [^\r\n]+?, second_play_ticks=(\d+), stop_request_ticks=(\d+),')
-    $originTicks = [long]$playClock.Groups[1].Value
     $traceDisposition = if (!$instance) { 'None' } elseif ($DiscardTrace) { 'Discarded' } else { 'Saved' }
-    $result = [ordered]@{ Cycle = $Trial.Cycle; Block = $Trial.Block; Position = $Trial.Position; Condition = $Trial.Condition; SourceRateHz = $sourceRate; CaptureRateHz = $sourceRate;
-        BeforeConditionTicks = $timer[0].Ticks; AfterProbeExitTicks = $timer[$timer.Count - 2].Ticks; AfterConditionStopTicks = $timer[$timer.Count - 1].Ticks;
-        PlaybackTicks = $originTicks + [long]$playClock.Groups[2].Value; StopRequestTicks = $originTicks + [long]$playClock.Groups[3].Value;
-        ClockFrequencyHz = [Diagnostics.Stopwatch]::Frequency; TraceDisposition = $traceDisposition;
-        ProbeExit = $probeExit;
-        TransportPassed = ($output -match '(?m)^Transport: PASS\r?$'); AcceptancePassed = ($probeExit -eq 0); StreamingTimerSamples = $streamSamples;
-        TimerBefore100ns = $timer[0].CurrentInterval100ns; TimerStarted100ns = $timer[1].CurrentInterval100ns;
-        TimerStreaming100ns = (@($timer | Where-Object Phase -eq 'streaming' | Select-Object -ExpandProperty CurrentInterval100ns -Unique) -join ';');
-        TimerFirstAfterStream100ns = $firstAfterStream.CurrentInterval100ns; TimerFirstAfterStreamPhase = $firstAfterStream.Phase;
-        TimerAfterProbe100ns = $timer[$timer.Count - 2].CurrentInterval100ns; TimerAfterCondition100ns = $timer[$timer.Count - 1].CurrentInterval100ns }
-    foreach ($key in $metrics.Keys) { $result[$key] = $metrics[$key] }
-    return [pscustomobject]$result
+    $capture = @{ Trial = $Trial; Directory = $Directory; Rate = $sourceRate; Timer = $timer; Timings = $Timings;
+        AfterProbeExitTicks = $timer[$timer.Count - 2].Ticks; Launch = $launch; ProcessStartUtc = $processStartUtc;
+        ProbeExit = $probeExit; DefaultsExit = $defaultsExit; TraceDisposition = $traceDisposition }
+    if ($verifyPrimerDefaults) { return $capture }
+    return Complete-WprTrial $capture
+}
+
+function Complete-WprTrial {
+    <# .SYNOPSIS
+    Validates Probe evidence and writes derived reports after any time-critical launch.
+    #>
+    param([hashtable]$Capture)
+    $processingStart = [Diagnostics.Stopwatch]::GetTimestamp()
+    $timer = $Capture.Timer
+    $trial = $Capture.Trial
+    $directory = $Capture.Directory
+    $sourceRate = $Capture.Rate
+    $probeExit = $Capture.ProbeExit
+    $prefix = Join-Path $directory 'probe'
+    try {
+        [IO.File]::WriteAllText("$prefix.exit.txt", [string]$probeExit)
+        if ($null -ne $Capture.DefaultsExit) { [IO.File]::WriteAllText((Join-Path $directory 'defaults-after.exit.txt'), [string]$Capture.DefaultsExit) }
+        $output = Get-Content -LiteralPath "$prefix.stdout.txt" -Encoding OEM -Raw
+        $streamSamples = Set-StreamingPhases $timer.ToArray() $output
+        if ($output -notmatch '(?m)^Capture: [^\r\n]*, 48000 Hz, 2 channels,') { throw 'The Probe did not report the expected 48 kHz stereo capture format.' }
+        if ($output -notmatch '(?m)^Capture reader: native Windows COM, stimulus=aperiodic,') { throw 'The Probe did not report the expected native aperiodic workload.' }
+        if (!$streamSamples -or @($timer | Where-Object { !$_.Valid }).Count) { throw 'Timer query coverage or validity is incomplete. Inspect timer-resolution.csv.' }
+        $metrics = Get-PcmMetrics (Join-Path $directory 'packets.csv') $sourceRate
+        $firstAfterStream = $timer | Where-Object { $_.Phase -in 'after-streaming', 'after-probe-exit' } | Select-Object -First 1
+        $playClock = [regex]::Match($output, '(?m)^Stopwatch: frequency_hz=\d+, origin_ticks=(\d+), [^\r\n]+?, second_play_ticks=(\d+), stop_request_ticks=(\d+),')
+        $originTicks = [long]$playClock.Groups[1].Value
+        $result = [ordered]@{ Cycle = $Trial.Cycle; Block = $Trial.Block; Position = $Trial.Position; Condition = $Trial.Condition; SourceRateHz = $sourceRate; CaptureRateHz = $sourceRate;
+            BeforeConditionTicks = $timer[0].Ticks; AfterProbeExitTicks = $timer[$timer.Count - 2].Ticks; AfterConditionStopTicks = $timer[$timer.Count - 1].Ticks;
+            ProbeLaunchTicks = $Capture.Launch.StartTicks; ProbeLaunchReturnTicks = $Capture.Launch.ReturnTicks; ProbeProcessStartUtc = $Capture.ProcessStartUtc;
+            PlaybackTicks = $originTicks + [long]$playClock.Groups[2].Value; StopRequestTicks = $originTicks + [long]$playClock.Groups[3].Value;
+            ClockFrequencyHz = [Diagnostics.Stopwatch]::Frequency; TraceDisposition = $Capture.TraceDisposition;
+            ProbeExit = $probeExit;
+            TransportPassed = ($output -match '(?m)^Transport: PASS\r?$'); AcceptancePassed = ($probeExit -eq 0); StreamingTimerSamples = $streamSamples;
+            TimerBefore100ns = $timer[0].CurrentInterval100ns; TimerStarted100ns = $timer[1].CurrentInterval100ns;
+            TimerStreaming100ns = (@($timer | Where-Object Phase -eq 'streaming' | Select-Object -ExpandProperty CurrentInterval100ns -Unique) -join ';');
+            TimerFirstAfterStream100ns = $firstAfterStream.CurrentInterval100ns; TimerFirstAfterStreamPhase = $firstAfterStream.Phase;
+            TimerAfterProbe100ns = $timer[$timer.Count - 2].CurrentInterval100ns; TimerAfterCondition100ns = $timer[$timer.Count - 1].CurrentInterval100ns }
+        foreach ($key in $metrics.Keys) { $result[$key] = $metrics[$key] }
+        return [pscustomobject]$result
+    } finally {
+        $timer | Export-Csv -LiteralPath (Join-Path $directory 'timer-resolution.csv') -Encoding UTF8 -NoTypeInformation
+        Add-TrialTiming $Capture.Timings 'process-evidence' $processingStart
+        $Capture.Timings | Export-Csv -LiteralPath (Join-Path $directory 'trial-timing.csv') -Encoding UTF8 -NoTypeInformation
+    }
 }
 
 function Invoke-CleanupWatch {
@@ -525,17 +654,35 @@ try {
     for ($attempt = 0; $attempt -lt 50 -and ![IO.File]::Exists($ready) -and !$watch.HasExited; $attempt++) { Start-Sleep -Milliseconds 100 }
     if (![IO.File]::Exists($ready) -or $watch.HasExited) { throw 'Private WPR cleanup watch did not start.' }
 
+    $trialTimings = @{}
+    foreach ($trial in $schedule) {
+        $tick = [Diagnostics.Stopwatch]::GetTimestamp()
+        $name = '{0}-{1}-{2}-{3}' -f $trial.Cycle, $trial.Block, $trial.Position, $trial.Condition
+        [void][IO.Directory]::CreateDirectory((Join-Path $evidence $name))
+        $trialTimings[$name] = [Collections.Generic.List[object]]::new()
+        Add-TrialTiming $trialTimings[$name] 'prepare-trial-directory' $tick
+    }
     foreach ($trial in $schedule) {
         if ($watch.HasExited) { throw 'Private WPR cleanup watch is no longer running.' }
         $name = '{0}-{1}-{2}-{3}' -f $trial.Cycle, $trial.Block, $trial.Position, $trial.Condition
         $directory = Join-Path $evidence $name
-        [void][IO.Directory]::CreateDirectory($directory)
-        Write-Host "Running $name (48 kHz source and capture)"
         $isTarget = $CarryoverDelaySeconds -and $trial.Role -eq 'Target'
+        if (!$isTarget) { Write-Host "Running $name (48 kHz source and capture)" }
         $due = if ($isTarget) { $primer.AfterProbeExitTicks + $CarryoverDelaySeconds * $frequency } else { 0 }
         $idle = if ($CarryoverDelaySeconds -or $IsolationProfile) { $focusedIdleSeconds } else { 1 }
         $discard = $CarryoverDelaySeconds -and $trial.Condition -eq 'CPU'
-        $result = Invoke-WprTrial $wpr $probe $endpoint $trial $directory $activeSession -IdleSeconds $idle -DueTicks $due -DiscardTrace:$discard -ProfilePath $profilePath
+        if ($CarryoverDelaySeconds -and !$isTarget) {
+            $primer = Invoke-WprTrial $wpr $probe $endpoint $trial $directory $activeSession -IdleSeconds $idle -DiscardTrace:$discard -ExpectedDefaults $defaults -Timings $trialTimings[$name]
+            continue
+        }
+        $result = Invoke-WprTrial $wpr $probe $endpoint $trial $directory $activeSession -IdleSeconds $idle -DueTicks $due -ProfilePath $profilePath -Timings $trialTimings[$name]
+        if ($isTarget) {
+            $pending = $primer
+            $primer = $null
+            $primerResult = Complete-WprTrial $pending
+            $results.Add($primerResult)
+            $primerResult | Export-Csv -LiteralPath (Join-Path $evidence 'trials.csv') -Encoding UTF8 -NoTypeInformation -Append
+        }
         $results.Add($result)
         $result | Export-Csv -LiteralPath (Join-Path $evidence 'trials.csv') -Encoding UTF8 -NoTypeInformation -Append
         $status = Invoke-LabChild $probe @('defaults') (Join-Path $directory 'defaults-after')
@@ -543,15 +690,16 @@ try {
         if ($status -ne 0 -or $defaults -cne $snapshot) { throw "Default playback roles changed or could not be verified after $name." }
         if ($isTarget) {
             [pscustomobject]@{ Arm = $trial.Block; Primer = $trial.Primer; RequestedExitToTargetSeconds = $CarryoverDelaySeconds;
-                PrimerExitToTargetLaunchSeconds = ($result.BeforeConditionTicks - $primer.AfterProbeExitTicks) / $frequency;
-                PrimerAudioStopToTargetPlaybackSeconds = ($result.PlaybackTicks - $primer.StopRequestTicks) / $frequency;
-                PrimerExitToTargetPlaybackSeconds = ($result.PlaybackTicks - $primer.AfterProbeExitTicks) / $frequency;
-                PrimerStopToTargetLaunchSeconds = ($result.BeforeConditionTicks - $primer.AfterConditionStopTicks) / $frequency;
-                PrimerDiscontinuities = $primer.Discontinuities; PrimerPcmSeconds = $primer.PcmSeconds;
+                PrimerExitToTargetLaunchSeconds = ($result.ProbeLaunchTicks - $primerResult.AfterProbeExitTicks) / $frequency;
+                PrimerExitToTargetLaunchReturnSeconds = ($result.ProbeLaunchReturnTicks - $primerResult.AfterProbeExitTicks) / $frequency;
+                PrimerAudioStopToTargetPlaybackSeconds = ($result.PlaybackTicks - $primerResult.StopRequestTicks) / $frequency;
+                PrimerExitToTargetPlaybackSeconds = ($result.PlaybackTicks - $primerResult.AfterProbeExitTicks) / $frequency;
+                PrimerStopToTargetLaunchSeconds = ($result.ProbeLaunchTicks - $primerResult.AfterConditionStopTicks) / $frequency;
+                PrimerDiscontinuities = $primerResult.Discontinuities; PrimerPcmSeconds = $primerResult.PcmSeconds;
                 TargetDiscontinuities = $result.Discontinuities; TargetPositionMismatches = $result.PositionMismatches; TargetQpcRegressions = $result.QpcRegressions;
                 TargetPcmSeconds = $result.PcmSeconds; TargetArrivalSeconds = $result.ArrivalSeconds; TargetAcceptancePassed = $result.AcceptancePassed } |
                 Export-Csv -LiteralPath (Join-Path $evidence 'carryover-targets.csv') -Encoding UTF8 -NoTypeInformation -Append
-        } elseif ($CarryoverDelaySeconds) { $primer = $result }
+        }
     }
     Assert-RunnerArchive $probeArchive $probeHash $runner
     $status = Invoke-LabChild $shell ($verifyArgs + @('-EvidenceDirectory', (Join-Path $evidence 'verification-after'))) (Join-Path $evidence 'verification-after')
@@ -567,6 +715,13 @@ try {
 } catch {
     $errorText = $_.ToString()
 } finally {
+    if ($primer) {
+        try {
+            $primerResult = Complete-WprTrial $primer
+            $results.Add($primerResult)
+            $primerResult | Export-Csv -LiteralPath (Join-Path $evidence 'trials.csv') -Encoding UTF8 -NoTypeInformation -Append
+        } catch { $errorText = "$errorText Primer evidence: $_".Trim() }
+    }
     if ($watch) {
         if (![IO.File]::ReadAllText($activeSession)) { [void]$done.Set(); [void]$watch.WaitForExit(5000) }
         $watch.Dispose()

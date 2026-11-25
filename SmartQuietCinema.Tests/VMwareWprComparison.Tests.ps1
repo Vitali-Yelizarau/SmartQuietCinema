@@ -16,6 +16,7 @@ foreach ($definition in $ast.FindAll({ param($node) $node -is [Management.Automa
 $temporary = [IO.Directory]::CreateDirectory((Join-Path ([IO.Path]::GetTempPath()) ('sqc-wpr-test-' + [guid]::NewGuid().ToString('N')))).FullName
 $shell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $wprp = Join-Path $temporary 'Isolation.wprp'
+$trialDirectories = [Collections.Generic.List[string]]::new()
 # WPR splits file paths on ! before loading a profile. Some test sandboxes include ! in their redirected temp root.
 if ($wprp.Contains('!')) { $wprp = Join-Path $PSScriptRoot ('sqc-wpr-test-' + [guid]::NewGuid().ToString('N') + '.wprp') }
 $passed = 0
@@ -193,13 +194,33 @@ Write-Output 'Transport: FAIL'
 exit 1
 '@ | Set-Content -LiteralPath $sequenceChild
     $realStart = ${function:Start-LabChild}
+    $defaultsChildScript = Join-Path $temporary 'synthetic defaults.ps1'
+    @'
+param([int]$DelayMilliseconds)
+Start-Sleep -Milliseconds $DelayMilliseconds
+[Console]::Out.WriteLine('synthetic defaults')
+exit 0
+'@ | Set-Content -LiteralPath $defaultsChildScript
+    $mock = @{ DefaultsDelayMs = 0; CancelDelayMs = 0; CancelExit = 0; LaunchReturnDelayMs = 0; SequenceStarts = 0; SequenceId = 0; DefaultsId = 0; CancelInstance = '' }
     function Start-LabChild {
         <# .SYNOPSIS
         Runs the substitute Probe with real process lifetime and no audio clients.
         #>
-        param([string]$Program, [string[]]$Arguments, [string]$LogPrefix)
+        param([string]$Program, [string[]]$Arguments, [string]$LogPrefix, [hashtable]$Launch)
+        if ($Program -eq 'probe-stub' -and $Arguments[0] -eq 'defaults') {
+            $child = & $realStart $shell @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $defaultsChildScript, '-DelayMilliseconds', "$($mock.DefaultsDelayMs)") $LogPrefix -Launch $Launch
+            $mock.DefaultsId = $child.Id
+            return $child
+        }
         if ($Program -ne 'probe-stub' -or $Arguments[0] -ne 'probe-sequence' -or $Arguments[2] -ne '48000') { throw 'Unexpected Probe invocation.' }
-        & $realStart $shell @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $sequenceChild) $LogPrefix
+        $child = & $realStart $shell @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $sequenceChild) $LogPrefix -Launch $Launch
+        $mock.SequenceId = $child.Id
+        $mock.SequenceStarts++
+        if ($mock.LaunchReturnDelayMs) {
+            Start-Sleep -Milliseconds $mock.LaunchReturnDelayMs
+            $Launch.ReturnTicks = [Diagnostics.Stopwatch]::GetTimestamp()
+        }
+        return $child
     }
     function Invoke-LabChild {
         <# .SYNOPSIS
@@ -209,7 +230,13 @@ exit 1
         $recorded = [IO.File]::ReadAllText($active)
         if ($Program -ne 'wpr-stub' -or !$recorded -or $Arguments[-2] -ne '-instancename' -or $Arguments[-1] -ne $recorded) { throw 'A WPR operation lacked the recorded private name.' }
         if ($Arguments[0] -eq '-start' -and ($Arguments[0..4] -join ' ') -eq '-start Audio -start CPU -filemode') { return 0 }
+        if ($Arguments[0] -eq '-start' -and ($Arguments[0..2] -join ' ') -eq '-start CPU -filemode') { return 0 }
         if ($Arguments[0] -eq '-stop') { [IO.File]::WriteAllText($Arguments[1], 'synthetic ETL'); return 0 }
+        if ($Arguments[0] -eq '-cancel') {
+            $mock.CancelInstance = $recorded
+            Start-Sleep -Milliseconds $mock.CancelDelayMs
+            return $mock.CancelExit
+        }
         throw 'Unexpected WPR operation.'
     }
     $active = Join-Path $temporary 'active-session.txt'
@@ -231,9 +258,102 @@ exit 1
     if (!$rejected) { throw 'An overdue target was accepted.' }
     $passed++
 
+    $frequency = [Diagnostics.Stopwatch]::Frequency
+    $pairedSchedule = @(Get-FocusedSchedule 2 '')
+    $targetTrial = $pairedSchedule[1]
+    $controlPrimerTrial = $pairedSchedule[2]
+    $defaultsSnapshot = "synthetic defaults`r`n"
+    foreach ($dirName in 'cpu-primer', 'off-primer', 'off-target') {
+        $dir = [IO.Directory]::CreateDirectory((Join-Path $temporary $dirName)).FullName
+        $trialDirectories.Add($dir)
+        foreach ($file in Get-ChildItem -LiteralPath $temporary -File -Filter 'packets*') { [IO.File]::Copy($file.FullName, (Join-Path $dir $file.Name)) }
+    }
+    $cpuDirectory, $offDirectory, $targetDirectory = $trialDirectories.ToArray()
+
+    # A slow successful CPU cancellation overlaps the default snapshot. CPU and OFF use the same primer-exit clock and defer reports.
+    $mock.CancelDelayMs = 1050
+    $mock.DefaultsDelayMs = 750
+    foreach ($primerTrial in $pairedSchedule[0], $controlPrimerTrial) {
+        $isCpu = $primerTrial.Condition -eq 'CPU'
+        $directory = if ($isCpu) { $cpuDirectory } else { $offDirectory }
+        $primer = Invoke-WprTrial 'wpr-stub' 'probe-stub' 'endpoint-id' $primerTrial $directory $active -IdleSeconds 0 -ExpectedDefaults $defaultsSnapshot -DiscardTrace:$isCpu
+        $remainingSession = [IO.File]::ReadAllText($active)
+        if ($remainingSession -or [IO.File]::Exists((Join-Path $directory 'probe.exit.txt'))) { throw 'Primer cleanup or evidence deferral failed.' }
+        $targetDue = $primer.AfterProbeExitTicks + 2 * $frequency
+        $target = Invoke-WprTrial 'wpr-stub' 'probe-stub' 'endpoint-id' $targetTrial $targetDirectory $active -DueTicks $targetDue
+        $completedPrimer = Complete-WprTrial $primer
+        $byOperation = @{}
+        foreach ($record in $primer.Timings) { $byOperation[$record.Operation] = $record }
+        if ($target.ProbeLaunchTicks -lt $targetDue -or $target.ProbeLaunchReturnTicks -gt $targetDue + $frequency / 4 -or
+            !$target.ProbeProcessStartUtc -or $byOperation['defaults-verify'].EndTicks -ge $target.ProbeLaunchTicks -or
+            $byOperation['process-evidence'].StartTicks -le $target.ProbeLaunchReturnTicks -or $completedPrimer.Condition -ne $primerTrial.Condition) {
+            throw 'Matched launch or delayed evidence accounting failed.'
+        }
+        if ($isCpu -and ($byOperation['wpr-cancel'].DurationUs -lt 950000 -or $byOperation['defaults-start-process'].EndTicks -gt $byOperation['wpr-cancel'].StartTicks)) {
+            throw 'The snapshot failed to start independently of the slow named cancellation.'
+        }
+        if (!$isCpu -and $byOperation.ContainsKey('wpr-cancel')) { throw 'The Off control unexpectedly invoked WPR.' }
+    }
+    $passed++
+
+    # A cancellation or defaults query that consumes the deadline must prevent actual target launch under the same 250 ms tolerance.
+    foreach ($slow in 'CancelDelayMs', 'DefaultsDelayMs') {
+        $mock.CancelDelayMs = 0
+        $mock.DefaultsDelayMs = 0
+        $mock[$slow] = 2350
+        $primer = Invoke-WprTrial 'wpr-stub' 'probe-stub' 'endpoint-id' $pairedSchedule[0] $cpuDirectory $active -IdleSeconds 0 -ExpectedDefaults $defaultsSnapshot -DiscardTrace
+        $beforeLaunches = $mock.SequenceStarts
+        $rejected = $false
+        try { [void](Invoke-WprTrial 'wpr-stub' 'probe-stub' 'endpoint-id' $targetTrial $targetDirectory $active -DueTicks ($primer.AfterProbeExitTicks + 2 * $frequency)) }
+        catch { if ($_.ToString() -notmatch 'missed its matched launch deadline') { throw }; $rejected = $true }
+        $completedPrimer = Complete-WprTrial $primer
+        if (!$rejected -or $mock.SequenceStarts -ne $beforeLaunches -or [IO.File]::ReadAllText($active) -or $completedPrimer.Condition -ne 'CPU') {
+            throw "The overdue target was launched or the primer evidence was lost after $slow."
+        }
+        $passed++
+    }
+
+    # A late process-creation return invalidates the trial and reaps the already-created owned Probe.
+    $mock.LaunchReturnDelayMs = 400
+    $rejected = $false
+    $due = [Diagnostics.Stopwatch]::GetTimestamp() + $frequency / 4
+    try { [void](Invoke-WprTrial 'wpr-stub' 'probe-stub' 'endpoint-id' $targetTrial $targetDirectory $active -DueTicks $due) }
+    catch { if ($_.ToString() -notmatch 'missed its matched launch deadline') { throw }; $rejected = $true }
+    $events = Import-Csv -LiteralPath (Join-Path $targetDirectory 'trial-timing.csv')
+    if (!$rejected -or !($events | Where-Object { $_.Operation -eq 'probe-start-process' -and $_.ProcessStartUtc }) -or
+        (Get-Process -Id $mock.SequenceId -ErrorAction SilentlyContinue)) { throw 'A late launch was accepted or the owned Probe remained alive.' }
+    $passed++
+
+    # A failed private cancellation leaves the exact watchdog marker intact and closes the outstanding verification process.
+    $mock.LaunchReturnDelayMs = 0
+    $mock.CancelDelayMs = 0
+    $mock.CancelExit = 5
+    $failedCancel = $false
+    try { [void](Invoke-WprTrial 'wpr-stub' 'probe-stub' 'endpoint-id' $pairedSchedule[0] $cpuDirectory $active -IdleSeconds 0 -ExpectedDefaults $defaultsSnapshot -DiscardTrace) }
+    catch { if ($_.ToString() -notmatch 'Cleanup could not be confirmed') { throw }; $failedCancel = $true }
+    if (!$failedCancel -or [IO.File]::ReadAllText($active) -cne $mock.CancelInstance -or (Get-Process -Id $mock.DefaultsId -ErrorAction SilentlyContinue)) {
+        throw 'Failed cancellation lost its watchdog marker or left a verifier running.'
+    }
+    $passed++
+
+    # A mismatched role snapshot must fail the arm after cleanup even when the deadline could still be met.
+    [IO.File]::WriteAllText($active, '')
+    $mock.CancelExit = 0
+    $mock.DefaultsDelayMs = 0
+    $beforeLaunches = $mock.SequenceStarts
+    $rejected = $false
+    try { [void](Invoke-WprTrial 'wpr-stub' 'probe-stub' 'endpoint-id' $pairedSchedule[0] $cpuDirectory $active -IdleSeconds 0 -ExpectedDefaults 'different roles' -DiscardTrace) }
+    catch { if ($_.ToString() -notmatch 'Default playback roles changed') { throw }; $rejected = $true }
+    if (!$rejected -or $mock.SequenceStarts -ne $beforeLaunches + 1 -or [IO.File]::ReadAllText($active)) { throw 'Mismatched roles did not fail closed.' }
+    $passed++
+
     "VMware WPR comparison tests: $passed passed, 0 failed, 0 skipped."
 } finally {
     [IO.File]::Delete($wprp)
+    foreach ($directory in $trialDirectories) {
+        foreach ($file in Get-ChildItem -LiteralPath $directory -File) { [IO.File]::Delete($file.FullName) }
+        [IO.Directory]::Delete($directory)
+    }
     foreach ($file in Get-ChildItem -LiteralPath $temporary -File) { [IO.File]::Delete($file.FullName) }
     [IO.Directory]::Delete($temporary)
 }
